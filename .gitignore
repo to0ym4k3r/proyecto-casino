@@ -1,0 +1,41 @@
+# ---- Android / Gradle ----
+android/.gradle/
+android/build/
+android/app/build/
+android/.kotlin/
+android/captures/
+android/.cxx/
+android/.externalNativeBuild/
+android/local.properties
+android/.idea/
+android/*.iml
+android/.settings/
+android/.classpath
+android/.project
+*.hprof
+*.keystore
+*.jks
+
+# ---- Go / backend ----
+backend/bin/
+backend/*.exe
+backend/coverage.out
+backend/*.test
+backend/data/
+backend/.env
+backend/.env.local
+*.log
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# ---- Local tooling (not product) ----
+.atl/
+.continue/
+LINK CUSTOMIZE.txt
+SKILLS CASINO.txt
