@@ -36,6 +36,30 @@ type GameRepository interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 }
 
+// RefreshTokenRepository defines persistence for rotated refresh tokens.
+//
+// Only the SHA-256 hash of a refresh JWT is ever stored. Rotate invalidates the
+// presented token (marking it replaced_by the new one) and persists the
+// replacement in one transaction; RevokeFamily revokes the entire family chain
+// in both directions, bounded to the token's user.
+type RefreshTokenRepository interface {
+	Save(ctx context.Context, rt *domain.RefreshToken) error
+	GetByHash(ctx context.Context, tokenHash string) (*domain.RefreshToken, error)
+	Rotate(ctx context.Context, oldID uuid.UUID, replacement *domain.RefreshToken) error
+	RevokeFamily(ctx context.Context, tokenID uuid.UUID) error
+}
+
+// RegistrationRepository creates the user, wallet, email verification and
+// initial refresh token atomically in a single transaction.
+type RegistrationRepository interface {
+	CreateUserWithWallet(ctx context.Context, in domain.RegistrationInput) error
+}
+
+// EmailVerificationRepository validates single-use email verification tokens.
+type EmailVerificationRepository interface {
+	Verify(ctx context.Context, tokenHash string) error
+}
+
 // BetRepository defines data access operations for bets.
 type BetRepository interface {
 	Create(ctx context.Context, bet *domain.Bet) error
