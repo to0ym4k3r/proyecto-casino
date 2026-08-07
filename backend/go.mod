@@ -10,7 +10,7 @@ require (
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/joho/godotenv v1.5.1
 	github.com/rs/zerolog v1.33.0
-	golang.org/x/crypto v0.54.0
+	golang.org/x/crypto v0.53.0
 )
 
 require (
@@ -21,5 +21,5 @@ require (
 	github.com/mattn/go-isatty v0.0.19 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/text v0.39.0 // indirect
 )
