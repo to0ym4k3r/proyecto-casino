@@ -14,8 +14,9 @@ type User struct {
 	PasswordHash string     `json:"-"`
 	FirstName    string     `json:"first_name" validate:"required,max=100"`
 	LastName     string     `json:"last_name" validate:"required,max=100"`
-	IsActive     bool       `json:"is_active"`
-	CreatedAt    time.Time  `json:"created_at"`
+	IsActive        bool       `json:"is_active"`
+	EmailVerifiedAt *time.Time `json:"email_verified_at,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 	DeletedAt    *time.Time `json:"deleted_at,omitempty"`
 }
