@@ -11,10 +11,13 @@ import (
 
 // Config holds all application configuration loaded from environment variables.
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	JWT      JWTConfig
-	CORS     CORSConfig
+	Server    ServerConfig
+	Database  DatabaseConfig
+	JWT       JWTConfig
+	CORS      CORSConfig
+	RateLimit RateLimitConfig
+	Security  SecurityConfig
+	Mailer    MailerConfig
 }
 
 // ServerConfig holds HTTP server settings.
@@ -44,10 +47,9 @@ func (d DatabaseConfig) DSN() string {
 
 // JWTConfig holds JSON Web Token settings.
 type JWTConfig struct {
-	Secret          string
-	AccessExpiry    time.Duration
-	RefreshExpiry   time.Duration
-	AccessExpiryMin int
+	Secret        string
+	AccessExpiry  time.Duration
+	RefreshExpiry time.Duration
 }
 
 // CORSConfig holds CORS allowed origins.
@@ -55,7 +57,37 @@ type CORSConfig struct {
 	AllowedOrigins string
 }
 
+// RateLimitConfig holds rate limiter settings.
+type RateLimitConfig struct {
+	// TrustedHeader names the header used to derive the client IP for rate
+	// limiting. Empty means X-Forwarded-For / Forwarded are ignored and the
+	// peer RemoteAddr is used (anti-spoofing default).
+	TrustedHeader string
+}
+
+// SecurityConfig holds HTTP security header settings.
+type SecurityConfig struct {
+	HSTSEnabled bool
+}
+
+// MailerConfig holds email transport settings.
+type MailerConfig struct {
+	Driver        string
+	SMTPHost      string
+	SMTPPort      string
+	SMTPUser      string
+	SMTPPassword  string
+	SMTPFrom      string
+	SMTPTLS       bool
+	VerifyBaseURL string
+}
+
 // Load reads configuration from environment variables and .env file.
+//
+// It never returns an error so cmd/migrate keeps working without a JWT secret;
+// the server binary validates the secret separately via ValidateJWTSecret.
+// JWT_SECRET has no default: a missing or weak value only fails at server
+// startup, never at config load.
 func Load() *Config {
 	_ = godotenv.Load()
 
@@ -74,15 +106,40 @@ func Load() *Config {
 			SSLMode:  getEnv("DB_SSLMODE", "disable"),
 		},
 		JWT: JWTConfig{
-			Secret:          getEnv("JWT_SECRET", "change-me-in-production"),
-			AccessExpiry:    getDurationMinutes("JWT_ACCESS_EXPIRY", 15),
-			RefreshExpiry:   getDurationMinutes("JWT_REFRESH_EXPIRY", 10080),
-			AccessExpiryMin: getInt("JWT_ACCESS_EXPIRY", 15),
+			Secret:        getEnv("JWT_SECRET", ""),
+			AccessExpiry:  getDurationMinutes("JWT_ACCESS_EXPIRY", 15),
+			RefreshExpiry: getDurationMinutes("JWT_REFRESH_EXPIRY", 10080),
 		},
 		CORS: CORSConfig{
 			AllowedOrigins: getEnv("CORS_ALLOWED_ORIGINS", "http://localhost:3000"),
 		},
+		RateLimit: RateLimitConfig{
+			TrustedHeader: getEnv("RATE_LIMIT_TRUSTED_HEADER", ""),
+		},
+		Security: SecurityConfig{
+			HSTSEnabled: getBool("HSTS_ENABLED", true),
+		},
+		Mailer: MailerConfig{
+			Driver:        getEnv("MAILER_DRIVER", "console"),
+			SMTPHost:      getEnv("SMTP_HOST", ""),
+			SMTPPort:      getEnv("SMTP_PORT", "587"),
+			SMTPUser:      getEnv("SMTP_USER", ""),
+			SMTPPassword:  getEnv("SMTP_PASSWORD", ""),
+			SMTPFrom:      getEnv("SMTP_FROM", ""),
+			SMTPTLS:       getBool("SMTP_TLS", true),
+			VerifyBaseURL: getEnv("VERIFY_BASE_URL", "http://localhost:8080"),
+		},
 	}
+}
+
+// ValidateJWTSecret reports whether the JWT signing secret is strong enough to
+// run the server. cmd/server fails fast at startup when it returns an error;
+// cmd/migrate never calls it, so migrations keep working without a secret.
+func (c *Config) ValidateJWTSecret() error {
+	if len(c.JWT.Secret) < 32 {
+		return fmt.Errorf("JWT_SECRET must be at least 32 bytes long (got %d): set a strong secret before starting the server", len(c.JWT.Secret))
+	}
+	return nil
 }
 
 func getEnv(key, fallback string) string {
@@ -96,6 +153,15 @@ func getInt(key string, fallback int) int {
 	if val, ok := os.LookupEnv(key); ok {
 		if i, err := strconv.Atoi(val); err == nil {
 			return i
+		}
+	}
+	return fallback
+}
+
+func getBool(key string, fallback bool) bool {
+	if val, ok := os.LookupEnv(key); ok {
+		if b, err := strconv.ParseBool(val); err == nil {
+			return b
 		}
 	}
 	return fallback
