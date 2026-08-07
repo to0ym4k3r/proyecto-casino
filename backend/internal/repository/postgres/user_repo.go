@@ -46,7 +46,7 @@ func (r *PostgresUserRepo) Create(ctx context.Context, user *domain.User) error 
 // GetByID retrieves a user by their UUID.
 func (r *PostgresUserRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
 	query := `
-		SELECT id, username, email, password_hash, first_name, last_name, is_active, created_at, updated_at
+		SELECT id, username, email, password_hash, first_name, last_name, is_active, email_verified_at, created_at, updated_at
 		FROM users
 		WHERE id = $1 AND deleted_at IS NULL`
 
@@ -59,6 +59,7 @@ func (r *PostgresUserRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.U
 		&user.FirstName,
 		&user.LastName,
 		&user.IsActive,
+		&user.EmailVerifiedAt,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	)
@@ -71,7 +72,7 @@ func (r *PostgresUserRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.U
 // GetByEmail retrieves a user by their email address.
 func (r *PostgresUserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
 	query := `
-		SELECT id, username, email, password_hash, first_name, last_name, is_active, created_at, updated_at
+		SELECT id, username, email, password_hash, first_name, last_name, is_active, email_verified_at, created_at, updated_at
 		FROM users
 		WHERE email = $1 AND deleted_at IS NULL`
 
@@ -84,6 +85,7 @@ func (r *PostgresUserRepo) GetByEmail(ctx context.Context, email string) (*domai
 		&user.FirstName,
 		&user.LastName,
 		&user.IsActive,
+		&user.EmailVerifiedAt,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	)
@@ -96,7 +98,7 @@ func (r *PostgresUserRepo) GetByEmail(ctx context.Context, email string) (*domai
 // GetByUsername retrieves a user by their username.
 func (r *PostgresUserRepo) GetByUsername(ctx context.Context, username string) (*domain.User, error) {
 	query := `
-		SELECT id, username, email, password_hash, first_name, last_name, is_active, created_at, updated_at
+		SELECT id, username, email, password_hash, first_name, last_name, is_active, email_verified_at, created_at, updated_at
 		FROM users
 		WHERE username = $1 AND deleted_at IS NULL`
 
@@ -109,6 +111,7 @@ func (r *PostgresUserRepo) GetByUsername(ctx context.Context, username string) (
 		&user.FirstName,
 		&user.LastName,
 		&user.IsActive,
+		&user.EmailVerifiedAt,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	)
