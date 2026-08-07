@@ -33,6 +33,12 @@ func main() {
 
 	cfg := config.Load()
 
+	// Fail fast (GOV-3): the server must never boot with a missing or weak
+	// JWT signing secret. cmd/migrate keeps working without one.
+	if err := cfg.ValidateJWTSecret(); err != nil {
+		log.Fatal().Err(err).Msg("invalid JWT configuration")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
