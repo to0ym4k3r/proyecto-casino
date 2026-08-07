@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: casino_pass
       POSTGRES_DB: casino
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
@@ -30,7 +30,9 @@ services:
       DB_PASSWORD: casino_pass
       DB_NAME: casino
       DB_SSLMODE: disable
-      JWT_SECRET: change-me-in-production
+      # Required, no default: the server refuses to start if unset or < 32 bytes.
+      # Provide it on the host or via a .env file next to this compose file.
+      JWT_SECRET: ${JWT_SECRET}
       JWT_ACCESS_EXPIRY: "15"
       JWT_REFRESH_EXPIRY: "10080"
     depends_on:
