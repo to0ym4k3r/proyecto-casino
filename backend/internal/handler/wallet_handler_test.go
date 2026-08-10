@@ -84,7 +84,7 @@ func TestGetBalanceWithValidJWT(t *testing.T) {
 	}
 
 	repo := &fakeWalletRepo{wallet: wantWallet}
-	authSvc := service.NewAuthService(nil, &config.JWTConfig{Secret: secret, AccessExpiry: 15 * time.Minute})
+	authSvc := service.NewAuthService(nil, nil, nil, nil, nil, &config.JWTConfig{Secret: secret, AccessExpiry: 15 * time.Minute, RefreshExpiry: 7 * 24 * time.Hour}, time.Hour)
 	h := NewWalletHandler(service.NewWalletService(repo))
 
 	route := middleware.Auth(authSvc)(http.HandlerFunc(h.GetBalance))

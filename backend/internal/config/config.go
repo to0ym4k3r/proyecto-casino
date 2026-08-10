@@ -80,6 +80,9 @@ type MailerConfig struct {
 	SMTPFrom      string
 	SMTPTLS       bool
 	VerifyBaseURL string
+	// EmailVerifyTTLMin bounds how long an issued email verification token
+	// stays valid (EMAIL_VERIFY_TTL_MIN, minutes).
+	EmailVerifyTTLMin time.Duration
 }
 
 // Load reads configuration from environment variables and .env file.
@@ -120,14 +123,15 @@ func Load() *Config {
 			HSTSEnabled: getBool("HSTS_ENABLED", true),
 		},
 		Mailer: MailerConfig{
-			Driver:        getEnv("MAILER_DRIVER", "console"),
-			SMTPHost:      getEnv("SMTP_HOST", ""),
-			SMTPPort:      getEnv("SMTP_PORT", "587"),
-			SMTPUser:      getEnv("SMTP_USER", ""),
-			SMTPPassword:  getEnv("SMTP_PASSWORD", ""),
-			SMTPFrom:      getEnv("SMTP_FROM", ""),
-			SMTPTLS:       getBool("SMTP_TLS", true),
-			VerifyBaseURL: getEnv("VERIFY_BASE_URL", "http://localhost:8080"),
+			Driver:           getEnv("MAILER_DRIVER", "console"),
+			SMTPHost:         getEnv("SMTP_HOST", ""),
+			SMTPPort:         getEnv("SMTP_PORT", "587"),
+			SMTPUser:         getEnv("SMTP_USER", ""),
+			SMTPPassword:     getEnv("SMTP_PASSWORD", ""),
+			SMTPFrom:         getEnv("SMTP_FROM", ""),
+			SMTPTLS:          getBool("SMTP_TLS", true),
+			VerifyBaseURL:    getEnv("VERIFY_BASE_URL", "http://localhost:8080"),
+			EmailVerifyTTLMin: getDurationMinutes("EMAIL_VERIFY_TTL_MIN", 1440),
 		},
 	}
 }

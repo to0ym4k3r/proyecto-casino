@@ -10,6 +10,7 @@ import (
 
 	"casino-backend/internal/config"
 	"casino-backend/internal/handler"
+	"casino-backend/internal/mailer"
 	"casino-backend/internal/repository/postgres"
 	"casino-backend/internal/service"
 	"casino-backend/pkg/logger"
@@ -51,16 +52,29 @@ func main() {
 	userRepo := postgres.NewPostgresUserRepo(pool)
 	walletRepo := postgres.NewPostgresWalletRepo(pool)
 	gameRepo := postgres.NewPostgresGameRepo(pool)
+	refreshRepo := postgres.NewPostgresRefreshTokenRepo(pool)
+	verificationRepo := postgres.NewPostgresEmailVerificationRepo(pool)
+	registrationRepo := postgres.NewPostgresRegistrationRepo(pool)
 
-	authService := service.NewAuthService(userRepo, &cfg.JWT)
+	// Email transport seam (design D3 / spec "SMTP seam"): console in dev,
+	// SMTP in production, selected by MAILER_DRIVER.
+	var mail mailer.Mailer
+	switch cfg.Mailer.Driver {
+	case "smtp":
+		mail = mailer.NewSMTPMailer(cfg.Mailer)
+	default:
+		mail = mailer.ConsoleMailer{VerifyBaseURL: cfg.Mailer.VerifyBaseURL}
+	}
+
+	authService := service.NewAuthService(userRepo, registrationRepo, refreshRepo, verificationRepo, mail, &cfg.JWT, cfg.Mailer.EmailVerifyTTLMin)
 	walletService := service.NewWalletService(walletRepo)
 	gameService := service.NewGameService(gameRepo)
 
-	authHandler := handler.NewAuthHandler(authService, walletService)
+	authHandler := handler.NewAuthHandler(authService)
 	gameHandler := handler.NewGameHandler(gameService)
 	walletHandler := handler.NewWalletHandler(walletService)
 
-	router := handler.NewRouter(authHandler, gameHandler, walletHandler, authService, log, cfg.CORS.AllowedOrigins)
+	router := handler.NewRouter(authHandler, gameHandler, walletHandler, authService, log, cfg.CORS.AllowedOrigins, cfg.RateLimit.TrustedHeader)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Server.Port,

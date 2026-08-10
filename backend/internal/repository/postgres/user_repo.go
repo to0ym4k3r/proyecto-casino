@@ -2,11 +2,14 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"casino-backend/internal/domain"
+	"casino-backend/internal/repository"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -23,8 +26,8 @@ func NewPostgresUserRepo(pool *pgxpool.Pool) *PostgresUserRepo {
 // Create inserts a new user into the database.
 func (r *PostgresUserRepo) Create(ctx context.Context, user *domain.User) error {
 	query := `
-		INSERT INTO users (id, username, email, password_hash, first_name, last_name, is_active, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
+		INSERT INTO users (id, username, email, password_hash, first_name, last_name, date_of_birth, is_active, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
 
 	_, err := r.pool.Exec(ctx, query,
 		user.ID,
@@ -33,6 +36,7 @@ func (r *PostgresUserRepo) Create(ctx context.Context, user *domain.User) error 
 		user.PasswordHash,
 		user.FirstName,
 		user.LastName,
+		user.DateOfBirth,
 		user.IsActive,
 		user.CreatedAt,
 		user.UpdatedAt,
@@ -46,7 +50,7 @@ func (r *PostgresUserRepo) Create(ctx context.Context, user *domain.User) error 
 // GetByID retrieves a user by their UUID.
 func (r *PostgresUserRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
 	query := `
-		SELECT id, username, email, password_hash, first_name, last_name, is_active, email_verified_at, created_at, updated_at
+		SELECT id, username, email, password_hash, first_name, last_name, date_of_birth, is_active, email_verified_at, created_at, updated_at
 		FROM users
 		WHERE id = $1 AND deleted_at IS NULL`
 
@@ -58,6 +62,7 @@ func (r *PostgresUserRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.U
 		&user.PasswordHash,
 		&user.FirstName,
 		&user.LastName,
+		&user.DateOfBirth,
 		&user.IsActive,
 		&user.EmailVerifiedAt,
 		&user.CreatedAt,
@@ -72,7 +77,7 @@ func (r *PostgresUserRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.U
 // GetByEmail retrieves a user by their email address.
 func (r *PostgresUserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
 	query := `
-		SELECT id, username, email, password_hash, first_name, last_name, is_active, email_verified_at, created_at, updated_at
+		SELECT id, username, email, password_hash, first_name, last_name, date_of_birth, is_active, email_verified_at, created_at, updated_at
 		FROM users
 		WHERE email = $1 AND deleted_at IS NULL`
 
@@ -84,12 +89,16 @@ func (r *PostgresUserRepo) GetByEmail(ctx context.Context, email string) (*domai
 		&user.PasswordHash,
 		&user.FirstName,
 		&user.LastName,
+		&user.DateOfBirth,
 		&user.IsActive,
 		&user.EmailVerifiedAt,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, repository.ErrUserNotFound
+		}
 		return nil, fmt.Errorf("get user by email: %w", err)
 	}
 	return user, nil
@@ -98,7 +107,7 @@ func (r *PostgresUserRepo) GetByEmail(ctx context.Context, email string) (*domai
 // GetByUsername retrieves a user by their username.
 func (r *PostgresUserRepo) GetByUsername(ctx context.Context, username string) (*domain.User, error) {
 	query := `
-		SELECT id, username, email, password_hash, first_name, last_name, is_active, email_verified_at, created_at, updated_at
+		SELECT id, username, email, password_hash, first_name, last_name, date_of_birth, is_active, email_verified_at, created_at, updated_at
 		FROM users
 		WHERE username = $1 AND deleted_at IS NULL`
 
@@ -110,12 +119,16 @@ func (r *PostgresUserRepo) GetByUsername(ctx context.Context, username string) (
 		&user.PasswordHash,
 		&user.FirstName,
 		&user.LastName,
+		&user.DateOfBirth,
 		&user.IsActive,
 		&user.EmailVerifiedAt,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 	)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, repository.ErrUserNotFound
+		}
 		return nil, fmt.Errorf("get user by username: %w", err)
 	}
 	return user, nil
@@ -153,6 +166,22 @@ func (r *PostgresUserRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("user not found")
+	}
+	return nil
+}
+
+// DeletePermanent physically deletes the user row. Safe for the register
+// rollback: the account was just created in the same request, has no bets or
+// KYC rows, and wallet/refresh/verification rows cascade on delete.
+func (r *PostgresUserRepo) DeletePermanent(ctx context.Context, id uuid.UUID) error {
+	query := `DELETE FROM users WHERE id = $1`
+
+	tag, err := r.pool.Exec(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("permanently delete user: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return repository.ErrUserNotFound
 	}
 	return nil
 }

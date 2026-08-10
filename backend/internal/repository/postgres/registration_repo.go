@@ -2,12 +2,14 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"casino-backend/internal/domain"
 	"casino-backend/internal/repository"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -27,11 +29,13 @@ func NewPostgresRegistrationRepo(pool *pgxpool.Pool) *PostgresRegistrationRepo {
 // CreateUserWithWallet persists the full registration atomically in one
 // transaction. Wallet.Balance is expressed in cents: the SQL cast divides by
 // 100 so the NUMERIC(15,2) column stays intact (cents in, dollars in DB).
+// A unique-violation on users.email or users.username surfaces as
+// repository.ErrUserAlreadyExists (mapped from PostgreSQL error 23505).
 func (r *PostgresRegistrationRepo) CreateUserWithWallet(ctx context.Context, in domain.RegistrationInput) error {
-	return r.withTx(ctx, func(t pgx.Tx) error {
+	err := r.withTx(ctx, func(t pgx.Tx) error {
 		userQuery := `
-			INSERT INTO users (id, username, email, password_hash, first_name, last_name, is_active, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
+			INSERT INTO users (id, username, email, password_hash, first_name, last_name, date_of_birth, is_active, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
 		if _, err := t.Exec(ctx, userQuery,
 			in.User.ID,
 			in.User.Username,
@@ -39,6 +43,7 @@ func (r *PostgresRegistrationRepo) CreateUserWithWallet(ctx context.Context, in 
 			in.User.PasswordHash,
 			in.User.FirstName,
 			in.User.LastName,
+			in.User.DateOfBirth,
 			in.User.IsActive,
 			in.User.CreatedAt,
 			in.User.UpdatedAt,
@@ -79,6 +84,22 @@ func (r *PostgresRegistrationRepo) CreateUserWithWallet(ctx context.Context, in 
 		}
 		return nil
 	})
+	if err != nil {
+		return mapUniqueViolation(err)
+	}
+	return nil
+}
+
+// mapUniqueViolation converts a PostgreSQL 23505 unique violation into the
+// repository's ErrUserAlreadyExists sentinel so the service layer can expose
+// a typed error regardless of which insert raced (user, wallet, verification,
+// refresh token all carry unique constraints).
+func mapUniqueViolation(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return repository.ErrUserAlreadyExists
+	}
+	return err
 }
 
 func (r *PostgresRegistrationRepo) withTx(ctx context.Context, fn func(pgx.Tx) error) error {

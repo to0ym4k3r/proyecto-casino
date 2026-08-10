@@ -14,10 +14,11 @@ import (
 // up to a maximum of [capacity] tokens. When a bucket is exhausted, subsequent
 // requests receive HTTP 429 Too Many Requests.
 type RateLimiter struct {
-	mu       sync.Mutex
-	clients  map[string]*bucket
-	rate     int
-	capacity int
+	mu            sync.Mutex
+	clients       map[string]*bucket
+	rate          int
+	capacity      int
+	trustedHeader string
 }
 
 // bucket tracks the token state for a single client IP.
@@ -29,25 +30,29 @@ type bucket struct {
 }
 
 // NewRateLimiter creates a rate limiter where each IP is allowed [rate] tokens
-// per second with a burst capacity of [capacity] tokens.
-func NewRateLimiter(rate, capacity int) *RateLimiter {
+// per second with a burst capacity of [capacity] tokens. A non-empty
+// trustedHeader restricts the client key to that single proxy header (anti-spoofing).
+func NewRateLimiter(rate, capacity int, trustedHeader string) *RateLimiter {
 	return &RateLimiter{
-		clients:  make(map[string]*bucket),
-		rate:     rate,
-		capacity: capacity,
+		clients:       make(map[string]*bucket),
+		rate:          rate,
+		capacity:      capacity,
+		trustedHeader: trustedHeader,
 	}
 }
 
 // Limit returns an HTTP middleware that enforces per-IP rate limiting.
 //
-// The client IP is determined from r.RemoteAddr, falling back to the
-// X-Forwarded-For header when present. Returns 429 if the client's bucket
-// is empty.
+// The key is r.RemoteAddr unless a trusted proxy header is configured, in
+// which case only that header is honored (X-Forwarded-For/Forwarded are
+// ignored otherwise). Returns 429 if the client's bucket is empty.
 func (rl *RateLimiter) Limit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := r.RemoteAddr
-		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-			ip = forwarded
+		if rl.trustedHeader != "" {
+			if v := r.Header.Get(rl.trustedHeader); v != "" {
+				ip = v
+			}
 		}
 
 		if !rl.allow(ip) {

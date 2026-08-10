@@ -14,7 +14,9 @@ type Mailer interface {
 	SendVerificationEmail(ctx context.Context, to, token string) error
 }
 
-// verifyLink builds the public verification URL for a raw token.
+// verifyLink builds the public verification URL for a raw token. The path is
+// the frozen contract POST /api/v1/auth/verify (frontends read the token from
+// the query and POST it to the JSON endpoint).
 func verifyLink(baseURL, token string) string {
-	return fmt.Sprintf("%s/auth/verify-email?token=%s", baseURL, token)
+	return fmt.Sprintf("%s/api/v1/auth/verify?token=%s", baseURL, token)
 }

@@ -16,6 +16,11 @@ type UserRepository interface {
 	GetByUsername(ctx context.Context, username string) (*domain.User, error)
 	Update(ctx context.Context, user *domain.User) error
 	Delete(ctx context.Context, id uuid.UUID) error
+	// DeletePermanent physically removes a user row. It is used only by the
+	// register rollback compensation, where the account was created seconds ago
+	// and has no history to preserve; unlike Delete (soft), it frees the
+	// email/username UNIQUE identities so a retry can re-register.
+	DeletePermanent(ctx context.Context, id uuid.UUID) error
 }
 
 // WalletRepository defines data access operations for wallets.

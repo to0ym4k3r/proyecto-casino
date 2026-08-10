@@ -32,11 +32,13 @@ func signAccessToken(t *testing.T, secret string, userID uuid.UUID) string {
 
 func newAuthService(t *testing.T, secret string) *service.AuthService {
 	t.Helper()
-	return service.NewAuthService(nil, &config.JWTConfig{
+	// Auth middleware only ever calls ValidateToken, which touches no
+	// repositories — nil fakes are safe here.
+	return service.NewAuthService(nil, nil, nil, nil, nil, &config.JWTConfig{
 		Secret:        secret,
 		AccessExpiry:  15 * time.Minute,
 		RefreshExpiry: 7 * 24 * time.Hour,
-	})
+	}, time.Hour)
 }
 
 // TestAuthMiddlewareStoresUserIDUnderTypedKey proves the write side: a valid

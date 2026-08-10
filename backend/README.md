@@ -17,6 +17,15 @@ Backend Go para la plataforma Casino Online. API REST con arquitectura hexagonal
 - Docker y docker-compose
 - Make (opcional, para comandos abreviados)
 
+> **Nota Windows (AMD/Intel con SVM/VT-x):** Docker Desktop requiere el backend
+> WSL2 para levantar el engine. Si `docker version` falla con
+> `dockerDesktopLinuxEngine` (daemon no encontrado), primero habilita la
+> virtualizacion en BIOS (AMD: SVM Mode; Intel: VT-x), reinicia y confirma con
+> `(Get-CimInstance Win32_Processor).VirtualizationFirmwareEnabled` = True.
+> Docker Desktop crea su propia distro WSL (`docker-desktop`); no hace falta
+> instalar Ubuntu manualmente. Verifica que "Start Docker Desktop when you sign in"
+> este activo (Settings > General) para que el engine arranque en cada login.
+
 ### Instalacion
 
 ```bash
@@ -49,7 +58,7 @@ El servidor arranca en `http://localhost:8080` por defecto.
 | `DB_NAME` | Nombre de la base de datos | casino |
 | `DATABASE_URL` | DSN completo usado por `make migrate` (si se omite, se construye desde `DB_*`) | vacio |
 | `DB_SSLMODE` | Modo SSL de PostgreSQL | disable |
-| `JWT_SECRET` | Secreto para firmar JWT (cambiar en produccion!) | change-me-in-production |
+| `JWT_SECRET` | Secreto para firmar JWT (cambiar en produccion!) | (obligatorio, sin default) |
 | `JWT_ACCESS_EXPIRY` | Duracion del access token (minutos) | 15 |
 | `JWT_REFRESH_EXPIRY` | Duracion del refresh token (minutos) | 10080 (7 dias) |
 | `PORT` | Puerto del servidor HTTP | 8080 |

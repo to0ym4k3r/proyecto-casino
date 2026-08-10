@@ -18,4 +18,13 @@ var (
 	// ErrInvalidVerificationToken is returned when an email verification token
 	// is unknown, already used, or expired.
 	ErrInvalidVerificationToken = errors.New("invalid verification token")
+
+	// ErrUserAlreadyExists is returned when an insert violates the unique
+	// constraints on users.email or users.username (PostgreSQL error 23505).
+	// Services map it to their own public error.
+	ErrUserAlreadyExists = errors.New("user already exists")
+
+	// ErrUserNotFound is returned when no user row matches a lookup by email,
+	// username or ID (PostgreSQL error 02000 â no rows).
+	ErrUserNotFound = errors.New("user not found")
 )

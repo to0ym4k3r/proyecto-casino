@@ -18,6 +18,7 @@ type Router struct {
 	authService    *service.AuthService
 	logger         zerolog.Logger
 	corsOrigins    string
+	trustedHeader  string
 }
 
 // NewRouter creates a new Router with all handlers and middleware.
@@ -28,6 +29,7 @@ func NewRouter(
 	authService *service.AuthService,
 	log zerolog.Logger,
 	corsOrigins string,
+	trustedHeader string,
 ) *Router {
 	return &Router{
 		authHandler:   authHandler,
@@ -36,6 +38,7 @@ func NewRouter(
 		authService:   authService,
 		logger:        log,
 		corsOrigins:   corsOrigins,
+		trustedHeader: trustedHeader,
 	}
 }
 
@@ -50,7 +53,8 @@ func NewRouter(
 //  6. CORS — handles cross-origin requests based on configured origins.
 //
 // Route groups under /api/v1:
-//   - /auth  — public endpoints (register, login, refresh) with a strict 5 req/s rate limit.
+//   - /auth  — public endpoints (register, verify, login, refresh, logout)
+//     with a strict 5 req/s rate limit.
 //   - /games — public list and detail endpoints; /start is protected by Auth middleware.
 //   - /wallet — all endpoints require a valid JWT (Auth middleware applied at group level).
 //
@@ -77,8 +81,8 @@ func (rt *Router) Setup() *chi.Mux {
 		MaxAge:           300,
 	}))
 
-	authRateLimiter := middleware.NewRateLimiter(5, 10)
-	generalRateLimiter := middleware.NewRateLimiter(100, 200)
+	authRateLimiter := middleware.NewRateLimiter(5, 10, rt.trustedHeader)
+	generalRateLimiter := middleware.NewRateLimiter(100, 200, rt.trustedHeader)
 
 	router.Route("/api/v1", func(r chi.Router) {
 		r.Use(generalRateLimiter.Limit)
@@ -86,8 +90,10 @@ func (rt *Router) Setup() *chi.Mux {
 		r.Route("/auth", func(r chi.Router) {
 			r.Use(authRateLimiter.Limit)
 			r.Post("/register", authH.Register)
+			r.Post("/verify", authH.VerifyEmail)
 			r.Post("/login", authH.Login)
 			r.Post("/refresh", authH.Refresh)
+			r.Post("/logout", authH.Logout)
 		})
 
 		r.Route("/games", func(r chi.Router) {
