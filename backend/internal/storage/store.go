@@ -97,9 +97,13 @@ func (s *LocalStore) Save(ctx context.Context, key string, r io.Reader) (int64, 
 	return n, nil
 }
 
-// validateKey rejects keys that could escape the storage directory.
+// validateKey rejects keys that could escape the storage directory. Path
+// separators are rejected explicitly (not just via filepath) because
+// filepath treats backslash as a separator only on Windows; keys are bare
+// file names and must never contain either separator on any platform.
 func validateKey(key string) error {
-	if key == "" || filepath.IsAbs(key) || filepath.Base(key) != key || strings.Contains(key, "..") {
+	if key == "" || filepath.IsAbs(key) || filepath.Base(key) != key ||
+		strings.ContainsAny(key, `/\`) || strings.Contains(key, "..") {
 		return ErrInvalidKey
 	}
 	return nil
