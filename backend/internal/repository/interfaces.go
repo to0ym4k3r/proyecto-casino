@@ -76,3 +76,13 @@ type BetRepository interface {
 	GetByUserID(ctx context.Context, userID uuid.UUID, limit, offset int) ([]domain.Bet, error)
 	Update(ctx context.Context, bet *domain.Bet) error
 }
+
+// KycRepository defines data access for KYC submissions and documents. A user
+// has at most one submission (kyc_submissions.user_id is UNIQUE, design D7);
+// documents may be uploaded before any submission exists, so CreateDocument
+// never touches the submission row.
+type KycRepository interface {
+	Submit(ctx context.Context, sub *domain.KycSubmission) error
+	GetByUserID(ctx context.Context, userID uuid.UUID) (*domain.KycSubmission, error)
+	CreateDocument(ctx context.Context, doc *domain.KycDocument) error
+}

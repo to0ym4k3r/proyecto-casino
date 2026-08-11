@@ -18,6 +18,7 @@ type Config struct {
 	RateLimit RateLimitConfig
 	Security  SecurityConfig
 	Mailer    MailerConfig
+	Storage   StorageConfig
 }
 
 // ServerConfig holds HTTP server settings.
@@ -85,6 +86,14 @@ type MailerConfig struct {
 	EmailVerifyTTLMin time.Duration
 }
 
+// StorageConfig holds file storage settings.
+type StorageConfig struct {
+	// KycDir is the directory where KYC documents are stored
+	// (KYC_STORAGE_DIR, design D1). Files live under generated keys, never
+	// user-supplied filenames.
+	KycDir string
+}
+
 // Load reads configuration from environment variables and .env file.
 //
 // It never returns an error so cmd/migrate keeps working without a JWT secret;
@@ -123,15 +132,18 @@ func Load() *Config {
 			HSTSEnabled: getBool("HSTS_ENABLED", true),
 		},
 		Mailer: MailerConfig{
-			Driver:           getEnv("MAILER_DRIVER", "console"),
-			SMTPHost:         getEnv("SMTP_HOST", ""),
-			SMTPPort:         getEnv("SMTP_PORT", "587"),
-			SMTPUser:         getEnv("SMTP_USER", ""),
-			SMTPPassword:     getEnv("SMTP_PASSWORD", ""),
-			SMTPFrom:         getEnv("SMTP_FROM", ""),
-			SMTPTLS:          getBool("SMTP_TLS", true),
-			VerifyBaseURL:    getEnv("VERIFY_BASE_URL", "http://localhost:8080"),
+			Driver:            getEnv("MAILER_DRIVER", "console"),
+			SMTPHost:          getEnv("SMTP_HOST", ""),
+			SMTPPort:          getEnv("SMTP_PORT", "587"),
+			SMTPUser:          getEnv("SMTP_USER", ""),
+			SMTPPassword:      getEnv("SMTP_PASSWORD", ""),
+			SMTPFrom:          getEnv("SMTP_FROM", ""),
+			SMTPTLS:           getBool("SMTP_TLS", true),
+			VerifyBaseURL:     getEnv("VERIFY_BASE_URL", "http://localhost:8080"),
 			EmailVerifyTTLMin: getDurationMinutes("EMAIL_VERIFY_TTL_MIN", 1440),
+		},
+		Storage: StorageConfig{
+			KycDir: getEnv("KYC_STORAGE_DIR", "./data/kyc"),
 		},
 	}
 }

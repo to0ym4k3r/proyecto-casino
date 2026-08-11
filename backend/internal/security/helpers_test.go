@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -187,6 +188,72 @@ func (r *memWalletRepo) UpdateBalance(_ context.Context, id uuid.UUID, amount fl
 }
 
 func (r *memWalletRepo) CreateTransaction(_ context.Context, _ *domain.Transaction) error {
+	return nil
+}
+
+// memKycRepo implements repository.KycRepository in memory with the same
+// semantics as the production repository: one submission per user (second
+// submit → ErrKycAlreadyExists), status lookups by user ID, and document rows
+// recorded for inspection.
+type memKycRepo struct {
+	mu          sync.Mutex
+	submissions map[uuid.UUID]*domain.KycSubmission
+	docs        []domain.KycDocument
+}
+
+func newMemKycRepo() *memKycRepo {
+	return &memKycRepo{submissions: make(map[uuid.UUID]*domain.KycSubmission)}
+}
+
+func (r *memKycRepo) Submit(_ context.Context, sub *domain.KycSubmission) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.submissions[sub.UserID]; ok {
+		return repository.ErrKycAlreadyExists
+	}
+	r.submissions[sub.UserID] = sub
+	return nil
+}
+
+func (r *memKycRepo) GetByUserID(_ context.Context, userID uuid.UUID) (*domain.KycSubmission, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	sub, ok := r.submissions[userID]
+	if !ok {
+		return nil, repository.ErrKycNotFound
+	}
+	return sub, nil
+}
+
+func (r *memKycRepo) CreateDocument(_ context.Context, doc *domain.KycDocument) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.docs = append(r.docs, *doc)
+	return nil
+}
+
+// memStore implements storage.Store in memory: it records every Save and never
+// touches the filesystem, so full-router tests can exercise the upload path.
+type memStore struct {
+	mu    sync.Mutex
+	saves []string
+}
+
+func (s *memStore) Save(_ context.Context, key string, r io.Reader) (int64, error) {
+	n, err := io.Copy(io.Discard, r)
+	if err != nil {
+		return 0, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.saves = append(s.saves, key)
+	return n, nil
+}
+
+func (s *memStore) Delete(_ context.Context, key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.saves = append(s.saves, "delete:"+key)
 	return nil
 }
 
@@ -426,10 +493,12 @@ type testHandlers struct {
 	wallet     *handler.WalletHandler
 	game       *handler.GameHandler
 	user       *handler.UserHandler
+	kyc        *handler.KycHandler
 	authSvc    *service.AuthService
 	userRepo   *memUserRepo
 	walletRepo *memWalletRepo
 	gameRepo   *memGameRepo
+	kycRepo    *memKycRepo
 	mailer     *stubMailer
 	jwtCfg     *config.JWTConfig
 }
@@ -444,6 +513,7 @@ func newTestHandlers(t *testing.T, secret string) *testHandlers {
 	userRepo := newMemUserRepo()
 	walletRepo := newMemWalletRepo()
 	gameRepo := newMemGameRepo()
+	kycRepo := newMemKycRepo()
 	refreshRepo := newMemRefreshRepo(userRepo)
 	verifyRepo := newMemVerificationRepo(userRepo)
 	regRepo := newMemRegistrationRepo(userRepo, walletRepo, verifyRepo, refreshRepo)
@@ -453,16 +523,19 @@ func newTestHandlers(t *testing.T, secret string) *testHandlers {
 	walletSvc := service.NewWalletService(walletRepo)
 	gameSvc := service.NewGameService(gameRepo)
 	userSvc := service.NewUserService(userRepo)
+	kycSvc := service.NewKycService(kycRepo)
 
 	return &testHandlers{
 		auth:       handler.NewAuthHandler(authSvc),
 		wallet:     handler.NewWalletHandler(walletSvc),
 		game:       handler.NewGameHandler(gameSvc),
 		user:       handler.NewUserHandler(userSvc),
+		kyc:        handler.NewKycHandler(kycSvc, &memStore{}),
 		authSvc:    authSvc,
 		userRepo:   userRepo,
 		walletRepo: walletRepo,
 		gameRepo:   gameRepo,
+		kycRepo:    kycRepo,
 		mailer:     mailer,
 		jwtCfg:     jwtCfg,
 	}
@@ -473,7 +546,7 @@ func newTestHandlers(t *testing.T, secret string) *testHandlers {
 func newTestRouter(t *testing.T, secret string) http.Handler {
 	t.Helper()
 	th := newTestHandlers(t, secret)
-	return handler.NewRouter(th.auth, th.game, th.wallet, th.user, th.authSvc, zerolog.Nop(), "http://localhost:3000", "").Setup()
+	return handler.NewRouter(th.auth, th.game, th.wallet, th.user, th.kyc, th.authSvc, zerolog.Nop(), "http://localhost:3000", "").Setup()
 }
 
 // ---------------------------------------------------------------------------

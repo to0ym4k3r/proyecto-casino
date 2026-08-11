@@ -13,6 +13,7 @@ import (
 	"casino-backend/internal/mailer"
 	"casino-backend/internal/repository/postgres"
 	"casino-backend/internal/service"
+	"casino-backend/internal/storage"
 	"casino-backend/pkg/logger"
 )
 
@@ -55,6 +56,7 @@ func main() {
 	refreshRepo := postgres.NewPostgresRefreshTokenRepo(pool)
 	verificationRepo := postgres.NewPostgresEmailVerificationRepo(pool)
 	registrationRepo := postgres.NewPostgresRegistrationRepo(pool)
+	kycRepo := postgres.NewPostgresKycRepo(pool)
 
 	// Email transport seam (design D3 / spec "SMTP seam"): console in dev,
 	// SMTP in production, selected by MAILER_DRIVER.
@@ -70,13 +72,16 @@ func main() {
 	walletService := service.NewWalletService(walletRepo)
 	gameService := service.NewGameService(gameRepo)
 	userService := service.NewUserService(userRepo)
+	kycService := service.NewKycService(kycRepo)
 
 	authHandler := handler.NewAuthHandler(authService)
 	gameHandler := handler.NewGameHandler(gameService)
 	walletHandler := handler.NewWalletHandler(walletService)
 	userHandler := handler.NewUserHandler(userService)
+	kycStore := storage.NewLocalStore(cfg.Storage.KycDir)
+	kycHandler := handler.NewKycHandler(kycService, kycStore)
 
-	router := handler.NewRouter(authHandler, gameHandler, walletHandler, userHandler, authService, log, cfg.CORS.AllowedOrigins, cfg.RateLimit.TrustedHeader)
+	router := handler.NewRouter(authHandler, gameHandler, walletHandler, userHandler, kycHandler, authService, log, cfg.CORS.AllowedOrigins, cfg.RateLimit.TrustedHeader)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Server.Port,

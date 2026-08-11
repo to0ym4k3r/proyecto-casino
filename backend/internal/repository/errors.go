@@ -27,4 +27,13 @@ var (
 	// ErrUserNotFound is returned when no user row matches a lookup by email,
 	// username or ID (PostgreSQL error 02000 â no rows).
 	ErrUserNotFound = errors.New("user not found")
+
+	// ErrKycAlreadyExists is returned when a user submits KYC identity fields a
+	// second time: kyc_submissions.user_id is UNIQUE (design D7). Mapped from
+	// PostgreSQL error 23505 in kyc_repo.go.
+	ErrKycAlreadyExists = errors.New("kyc submission already exists")
+
+	// ErrKycNotFound is returned when no KYC submission exists for a user
+	// (PostgreSQL error 02000 â no rows).
+	ErrKycNotFound = errors.New("kyc submission not found")
 )

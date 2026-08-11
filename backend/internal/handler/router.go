@@ -16,6 +16,7 @@ type Router struct {
 	gameHandler   *GameHandler
 	walletHandler *WalletHandler
 	userHandler   *UserHandler
+	kycHandler    *KycHandler
 	authService   *service.AuthService
 	logger        zerolog.Logger
 	corsOrigins   string
@@ -28,6 +29,7 @@ func NewRouter(
 	gameHandler *GameHandler,
 	walletHandler *WalletHandler,
 	userHandler *UserHandler,
+	kycHandler *KycHandler,
 	authService *service.AuthService,
 	log zerolog.Logger,
 	corsOrigins string,
@@ -38,6 +40,7 @@ func NewRouter(
 		gameHandler:   gameHandler,
 		walletHandler: walletHandler,
 		userHandler:   userHandler,
+		kycHandler:    kycHandler,
 		authService:   authService,
 		logger:        log,
 		corsOrigins:   corsOrigins,
@@ -61,6 +64,7 @@ func NewRouter(
 //   - /games — public list and detail endpoints; /start is protected by Auth middleware.
 //   - /wallet — all endpoints require a valid JWT (Auth middleware applied at group level).
 //   - /users  — all endpoints require a valid JWT (Auth middleware applied at group level).
+//   - /kyc    — all endpoints require a valid JWT (Auth middleware applied at group level).
 //
 // A general 100 req/s rate limit is applied to all /api/v1 routes.
 func (rt *Router) Setup() *chi.Mux {
@@ -70,6 +74,7 @@ func (rt *Router) Setup() *chi.Mux {
 	gameH := rt.gameHandler
 	walletH := rt.walletHandler
 	userH := rt.userHandler
+	kycH := rt.kycHandler
 	authSvc := rt.authService
 
 	router.Use(chimw.RequestID)
@@ -122,6 +127,13 @@ func (rt *Router) Setup() *chi.Mux {
 			r.Use(middleware.Auth(authSvc))
 			r.Get("/me", userH.GetMe)
 			r.Put("/me", userH.UpdateMe)
+		})
+
+		r.Route("/kyc", func(r chi.Router) {
+			r.Use(middleware.Auth(authSvc))
+			r.Post("/submit", kycH.SubmitKYC)
+			r.Get("/status", kycH.GetKYCStatus)
+			r.Post("/documents", kycH.UploadDocument)
 		})
 	})
 
