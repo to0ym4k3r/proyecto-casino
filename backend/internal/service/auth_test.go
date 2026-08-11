@@ -74,6 +74,21 @@ func (f *fakeUserRepo) GetByUsername(_ context.Context, username string) (*domai
 
 func (f *fakeUserRepo) Update(_ context.Context, _ *domain.User) error { return nil }
 
+// UpdateProfile persists the three mutable profile fields, keeping the
+// username identity index coherent.
+func (f *fakeUserRepo) UpdateProfile(_ context.Context, id uuid.UUID, username, firstName, lastName string) error {
+	u, ok := f.byID[id]
+	if !ok {
+		return repository.ErrUserNotFound
+	}
+	delete(f.byUsername, u.Username)
+	u.Username = username
+	u.FirstName = firstName
+	u.LastName = lastName
+	f.byUsername[username] = u
+	return nil
+}
+
 // Delete is a SOFT delete: the row stays in the maps (still occupying the
 // email/username identities) but every lookup treats it as gone — exactly how
 // the Postgres deleted_at IS NULL filters behave.
@@ -202,9 +217,9 @@ func (f *fakeRefreshRepo) familyIDs(id uuid.UUID) []uuid.UUID {
 }
 
 type fakeRegistrationRepo struct {
-	calls      []domain.RegistrationInput
-	userRepo   *fakeUserRepo
-	verifyRepo *fakeVerificationRepo
+	calls       []domain.RegistrationInput
+	userRepo    *fakeUserRepo
+	verifyRepo  *fakeVerificationRepo
 	refreshRepo *fakeRefreshRepo
 }
 

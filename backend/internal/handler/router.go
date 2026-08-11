@@ -12,13 +12,14 @@ import (
 
 // Router holds all dependencies for HTTP route configuration.
 type Router struct {
-	authHandler    *AuthHandler
-	gameHandler    *GameHandler
-	walletHandler  *WalletHandler
-	authService    *service.AuthService
-	logger         zerolog.Logger
-	corsOrigins    string
-	trustedHeader  string
+	authHandler   *AuthHandler
+	gameHandler   *GameHandler
+	walletHandler *WalletHandler
+	userHandler   *UserHandler
+	authService   *service.AuthService
+	logger        zerolog.Logger
+	corsOrigins   string
+	trustedHeader string
 }
 
 // NewRouter creates a new Router with all handlers and middleware.
@@ -26,6 +27,7 @@ func NewRouter(
 	authHandler *AuthHandler,
 	gameHandler *GameHandler,
 	walletHandler *WalletHandler,
+	userHandler *UserHandler,
 	authService *service.AuthService,
 	log zerolog.Logger,
 	corsOrigins string,
@@ -35,6 +37,7 @@ func NewRouter(
 		authHandler:   authHandler,
 		gameHandler:   gameHandler,
 		walletHandler: walletHandler,
+		userHandler:   userHandler,
 		authService:   authService,
 		logger:        log,
 		corsOrigins:   corsOrigins,
@@ -57,6 +60,7 @@ func NewRouter(
 //     with a strict 5 req/s rate limit.
 //   - /games — public list and detail endpoints; /start is protected by Auth middleware.
 //   - /wallet — all endpoints require a valid JWT (Auth middleware applied at group level).
+//   - /users  — all endpoints require a valid JWT (Auth middleware applied at group level).
 //
 // A general 100 req/s rate limit is applied to all /api/v1 routes.
 func (rt *Router) Setup() *chi.Mux {
@@ -65,6 +69,7 @@ func (rt *Router) Setup() *chi.Mux {
 	authH := rt.authHandler
 	gameH := rt.gameHandler
 	walletH := rt.walletHandler
+	userH := rt.userHandler
 	authSvc := rt.authService
 
 	router.Use(chimw.RequestID)
@@ -111,6 +116,12 @@ func (rt *Router) Setup() *chi.Mux {
 			r.Get("/balance", walletH.GetBalance)
 			r.Post("/deposit", walletH.Deposit)
 			r.Post("/withdraw", walletH.Withdraw)
+		})
+
+		r.Route("/users", func(r chi.Router) {
+			r.Use(middleware.Auth(authSvc))
+			r.Get("/me", userH.GetMe)
+			r.Put("/me", userH.UpdateMe)
 		})
 	})
 

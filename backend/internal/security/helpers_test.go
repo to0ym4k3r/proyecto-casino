@@ -106,7 +106,27 @@ func (r *memUserRepo) GetByUsername(_ context.Context, username string) (*domain
 }
 
 func (r *memUserRepo) Update(_ context.Context, _ *domain.User) error { return nil }
-func (r *memUserRepo) Delete(_ context.Context, _ uuid.UUID) error    { return nil }
+
+// UpdateProfile mirrors the production repository: it persists exactly the
+// three mutable profile fields and keeps the username index coherent.
+func (r *memUserRepo) UpdateProfile(_ context.Context, userID uuid.UUID, username, firstName, lastName string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	u, ok := r.byID[userID]
+	if !ok {
+		return repository.ErrUserNotFound
+	}
+	if u.Username != username {
+		delete(r.byUsername, u.Username)
+		u.Username = username
+		r.byUsername[username] = u
+	}
+	u.FirstName = firstName
+	u.LastName = lastName
+	u.UpdatedAt = time.Now().UTC()
+	return nil
+}
+func (r *memUserRepo) Delete(_ context.Context, _ uuid.UUID) error { return nil }
 func (r *memUserRepo) DeletePermanent(_ context.Context, _ uuid.UUID) error {
 	return nil
 }
@@ -405,6 +425,7 @@ type testHandlers struct {
 	auth       *handler.AuthHandler
 	wallet     *handler.WalletHandler
 	game       *handler.GameHandler
+	user       *handler.UserHandler
 	authSvc    *service.AuthService
 	userRepo   *memUserRepo
 	walletRepo *memWalletRepo
@@ -431,11 +452,13 @@ func newTestHandlers(t *testing.T, secret string) *testHandlers {
 	authSvc := service.NewAuthService(userRepo, regRepo, refreshRepo, verifyRepo, mailer, jwtCfg, 24*time.Hour)
 	walletSvc := service.NewWalletService(walletRepo)
 	gameSvc := service.NewGameService(gameRepo)
+	userSvc := service.NewUserService(userRepo)
 
 	return &testHandlers{
 		auth:       handler.NewAuthHandler(authSvc),
 		wallet:     handler.NewWalletHandler(walletSvc),
 		game:       handler.NewGameHandler(gameSvc),
+		user:       handler.NewUserHandler(userSvc),
 		authSvc:    authSvc,
 		userRepo:   userRepo,
 		walletRepo: walletRepo,
@@ -450,7 +473,7 @@ func newTestHandlers(t *testing.T, secret string) *testHandlers {
 func newTestRouter(t *testing.T, secret string) http.Handler {
 	t.Helper()
 	th := newTestHandlers(t, secret)
-	return handler.NewRouter(th.auth, th.game, th.wallet, th.authSvc, zerolog.Nop(), "http://localhost:3000", "").Setup()
+	return handler.NewRouter(th.auth, th.game, th.wallet, th.user, th.authSvc, zerolog.Nop(), "http://localhost:3000", "").Setup()
 }
 
 // ---------------------------------------------------------------------------

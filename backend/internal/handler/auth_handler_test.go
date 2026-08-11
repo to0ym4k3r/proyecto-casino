@@ -67,7 +67,23 @@ func (f *fakeAuthUserRepo) GetByUsername(_ context.Context, username string) (*d
 }
 
 func (f *fakeAuthUserRepo) Update(_ context.Context, _ *domain.User) error { return nil }
-func (f *fakeAuthUserRepo) Delete(_ context.Context, _ uuid.UUID) error    { return nil }
+
+// UpdateProfile persists the three mutable profile fields, keeping the
+// username identity index coherent.
+func (f *fakeAuthUserRepo) UpdateProfile(_ context.Context, id uuid.UUID, username, firstName, lastName string) error {
+	u, ok := f.byID[id]
+	if !ok {
+		return repository.ErrUserNotFound
+	}
+	delete(f.byUsername, u.Username)
+	u.Username = username
+	u.FirstName = firstName
+	u.LastName = lastName
+	f.byUsername[username] = u
+	return nil
+}
+
+func (f *fakeAuthUserRepo) Delete(_ context.Context, _ uuid.UUID) error { return nil }
 func (f *fakeAuthUserRepo) DeletePermanent(_ context.Context, _ uuid.UUID) error {
 	return nil
 }
@@ -143,10 +159,10 @@ func (f *fakeAuthVerifyRepo) Verify(_ context.Context, tokenHash string) error {
 }
 
 type fakeAuthRegRepo struct {
-	users     *fakeAuthUserRepo
-	verify    *fakeAuthVerifyRepo
-	refresh   *fakeAuthRefreshRepo
-	wallet    *fakeWalletRepo
+	users   *fakeAuthUserRepo
+	verify  *fakeAuthVerifyRepo
+	refresh *fakeAuthRefreshRepo
+	wallet  *fakeWalletRepo
 }
 
 func newFakeAuthRegRepo(users *fakeAuthUserRepo, verify *fakeAuthVerifyRepo, refresh *fakeAuthRefreshRepo, wallet *fakeWalletRepo) *fakeAuthRegRepo {

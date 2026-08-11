@@ -156,6 +156,26 @@ func (r *PostgresUserRepo) Update(ctx context.Context, user *domain.User) error 
 	return nil
 }
 
+// UpdateProfile persists the mutable profile fields for a user. It
+// intentionally excludes email and credentials: email is immutable in this
+// change (design D6) and password/verification state is owned by the auth
+// flows. Uses parameterized SQL only — values are never concatenated.
+func (r *PostgresUserRepo) UpdateProfile(ctx context.Context, userID uuid.UUID, username, firstName, lastName string) error {
+	query := `
+		UPDATE users
+		SET username = $2, first_name = $3, last_name = $4, updated_at = NOW()
+		WHERE id = $1 AND deleted_at IS NULL`
+
+	tag, err := r.pool.Exec(ctx, query, userID, username, firstName, lastName)
+	if err != nil {
+		return fmt.Errorf("update user profile: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return repository.ErrUserNotFound
+	}
+	return nil
+}
+
 // Delete soft-deletes a user by setting deleted_at.
 func (r *PostgresUserRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `UPDATE users SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL`

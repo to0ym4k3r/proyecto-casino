@@ -15,6 +15,10 @@ type UserRepository interface {
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)
 	GetByUsername(ctx context.Context, username string) (*domain.User, error)
 	Update(ctx context.Context, user *domain.User) error
+	// UpdateProfile persists only the mutable profile fields (username,
+	// first_name, last_name). Email and credentials are immutable and are never
+	// touched here (design D6).
+	UpdateProfile(ctx context.Context, userID uuid.UUID, username, firstName, lastName string) error
 	Delete(ctx context.Context, id uuid.UUID) error
 	// DeletePermanent physically removes a user row. It is used only by the
 	// register rollback compensation, where the account was created seconds ago

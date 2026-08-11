@@ -69,12 +69,14 @@ func main() {
 	authService := service.NewAuthService(userRepo, registrationRepo, refreshRepo, verificationRepo, mail, &cfg.JWT, cfg.Mailer.EmailVerifyTTLMin)
 	walletService := service.NewWalletService(walletRepo)
 	gameService := service.NewGameService(gameRepo)
+	userService := service.NewUserService(userRepo)
 
 	authHandler := handler.NewAuthHandler(authService)
 	gameHandler := handler.NewGameHandler(gameService)
 	walletHandler := handler.NewWalletHandler(walletService)
+	userHandler := handler.NewUserHandler(userService)
 
-	router := handler.NewRouter(authHandler, gameHandler, walletHandler, authService, log, cfg.CORS.AllowedOrigins, cfg.RateLimit.TrustedHeader)
+	router := handler.NewRouter(authHandler, gameHandler, walletHandler, userHandler, authService, log, cfg.CORS.AllowedOrigins, cfg.RateLimit.TrustedHeader)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Server.Port,
