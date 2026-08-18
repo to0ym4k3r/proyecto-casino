@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"casino-backend/internal/domain"
 
@@ -85,4 +86,11 @@ type KycRepository interface {
 	Submit(ctx context.Context, sub *domain.KycSubmission) error
 	GetByUserID(ctx context.Context, userID uuid.UUID) (*domain.KycSubmission, error)
 	CreateDocument(ctx context.Context, doc *domain.KycDocument) error
+}
+
+// SolanaTxRepository defines data access for on-chain Solana transaction records.
+type SolanaTxRepository interface {
+	Create(ctx context.Context, tx *domain.SolanaTx) error
+	ListByWalletID(ctx context.Context, walletID uuid.UUID, txType string, after, before *time.Time, limit, offset int) ([]domain.SolanaTx, int, error)
+	GetByTxHash(ctx context.Context, txHash string) (*domain.SolanaTx, error)
 }
