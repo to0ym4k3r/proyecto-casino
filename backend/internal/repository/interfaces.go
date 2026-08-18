@@ -79,9 +79,10 @@ type BetRepository interface {
 }
 
 // GameSessionRepository defines data access operations for game sessions.
-type GameSessionRepository interface {
+type 	GameSessionRepository interface {
 	Create(ctx context.Context, session *domain.GameSession) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.GameSession, error)
+	GetActiveSession(ctx context.Context, userID, gameID uuid.UUID) (*domain.GameSession, error)
 	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.GameSessionStatus) error
 	FindAbandoned(ctx context.Context, olderThan time.Duration) ([]domain.GameSession, error)
 }

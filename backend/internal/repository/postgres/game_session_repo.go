@@ -68,6 +68,32 @@ func (r *PostgresGameSessionRepo) GetByID(ctx context.Context, id uuid.UUID) (*d
 	return session, nil
 }
 
+// GetActiveSession returns the active session for a user and game, or an error
+// if no active session exists.
+func (r *PostgresGameSessionRepo) GetActiveSession(ctx context.Context, userID, gameID uuid.UUID) (*domain.GameSession, error) {
+	query := `
+		SELECT id, user_id, game_id, server_seed, server_seed_hash, status, balance_snapshot, started_at, ended_at
+		FROM game_sessions
+		WHERE user_id = $1 AND game_id = $2 AND status = 'active'`
+
+	session := &domain.GameSession{}
+	err := r.pool.QueryRow(ctx, query, userID, gameID).Scan(
+		&session.ID,
+		&session.UserID,
+		&session.GameID,
+		&session.ServerSeed,
+		&session.ServerSeedHash,
+		&session.Status,
+		&session.BalanceSnapshot,
+		&session.StartedAt,
+		&session.EndedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get active session: %w", err)
+	}
+	return session, nil
+}
+
 // UpdateStatus changes a session's status. When setting to completed or
 // abandoned, it also sets ended_at to the current timestamp.
 func (r *PostgresGameSessionRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status domain.GameSessionStatus) error {

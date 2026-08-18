@@ -302,7 +302,7 @@ func (s *GameService) GetActiveSession(ctx context.Context, userID, gameID uuid.
 	if s.sessionRepo == nil {
 		return nil, fmt.Errorf("persistence not configured")
 	}
-	return nil, fmt.Errorf("no active session found: persistence query not yet implemented")
+	return s.sessionRepo.GetActiveSession(ctx, userID, gameID)
 }
 
 // CreateGame persists a new game to the database.

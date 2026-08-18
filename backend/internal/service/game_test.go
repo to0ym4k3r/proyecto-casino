@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"errors"
 	"math"
 	"testing"
+	"time"
 
 	"casino-backend/internal/domain"
 	"casino-backend/internal/rng"
@@ -49,6 +51,50 @@ func (f *fakeGameRepo) Update(_ context.Context, g *domain.Game) error {
 func (f *fakeGameRepo) Delete(_ context.Context, id uuid.UUID) error {
 	delete(f.games, id)
 	return nil
+}
+
+// fakeSessionRepo is an in-memory game session repository for testing.
+type fakeSessionRepo struct {
+	sessions map[uuid.UUID]*domain.GameSession
+}
+
+func newFakeSessionRepo() *fakeSessionRepo {
+	return &fakeSessionRepo{sessions: make(map[uuid.UUID]*domain.GameSession)}
+}
+
+func (f *fakeSessionRepo) Create(_ context.Context, s *domain.GameSession) error {
+	f.sessions[s.ID] = s
+	return nil
+}
+
+func (f *fakeSessionRepo) GetByID(_ context.Context, id uuid.UUID) (*domain.GameSession, error) {
+	s, ok := f.sessions[id]
+	if !ok {
+		return nil, domain.ErrNotFound
+	}
+	return s, nil
+}
+
+func (f *fakeSessionRepo) GetActiveSession(_ context.Context, userID, gameID uuid.UUID) (*domain.GameSession, error) {
+	for _, s := range f.sessions {
+		if s.UserID == userID && s.GameID == gameID && s.Status == domain.SessionStatusActive {
+			return s, nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
+func (f *fakeSessionRepo) UpdateStatus(_ context.Context, id uuid.UUID, status domain.GameSessionStatus) error {
+	s, ok := f.sessions[id]
+	if !ok {
+		return domain.ErrNotFound
+	}
+	s.Status = status
+	return nil
+}
+
+func (f *fakeSessionRepo) FindAbandoned(_ context.Context, olderThan time.Duration) ([]domain.GameSession, error) {
+	return nil, nil
 }
 
 // TestResolveBetUsesCryptoRand proves ResolveBet does not depend on math/rand
@@ -210,5 +256,88 @@ func TestStartGameReturnsHashNotSeed(t *testing.T) {
 	}
 	if session.ServerSeed == session.ServerSeedHash {
 		t.Error("ServerSeed and ServerSeedHash must be different")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetActiveSession
+// ---------------------------------------------------------------------------
+
+// TestGetActiveSessionReturnsSession proves GetActiveSession returns the active
+// session when one exists for the given user and game.
+func TestGetActiveSessionReturnsSession(t *testing.T) {
+	sessionRepo := newFakeSessionRepo()
+	svc := NewGameServiceWithPersistence(nil, nil, nil, sessionRepo, nil)
+
+	userID := uuid.New()
+	gameID := uuid.New()
+	want := &domain.GameSession{
+		ID:              uuid.New(),
+		UserID:          userID,
+		GameID:          gameID,
+		ServerSeed:      "abc123",
+		ServerSeedHash:  "def456",
+		Status:          domain.SessionStatusActive,
+		BalanceSnapshot: 1000,
+		StartedAt:       time.Now().UTC(),
+	}
+	sessionRepo.sessions[want.ID] = want
+
+	got, err := svc.GetActiveSession(context.Background(), userID, gameID)
+	if err != nil {
+		t.Fatalf("GetActiveSession: unexpected error: %v", err)
+	}
+	if got.ID != want.ID {
+		t.Errorf("got session ID %v, want %v", got.ID, want.ID)
+	}
+}
+
+// TestGetActiveSessionNotFound proves GetActiveSession returns an error when no
+// active session exists for the given user and game.
+func TestGetActiveSessionNotFound(t *testing.T) {
+	sessionRepo := newFakeSessionRepo()
+	svc := NewGameServiceWithPersistence(nil, nil, nil, sessionRepo, nil)
+
+	_, err := svc.GetActiveSession(context.Background(), uuid.New(), uuid.New())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got: %v", err)
+	}
+}
+
+// TestGetActiveSessionCompletedSessionNotReturned proves a completed session
+// is not returned by GetActiveSession.
+func TestGetActiveSessionCompletedSessionNotReturned(t *testing.T) {
+	sessionRepo := newFakeSessionRepo()
+	svc := NewGameServiceWithPersistence(nil, nil, nil, sessionRepo, nil)
+
+	userID := uuid.New()
+	gameID := uuid.New()
+	sessionRepo.sessions[uuid.New()] = &domain.GameSession{
+		ID:     uuid.New(),
+		UserID: userID,
+		GameID: gameID,
+		Status: domain.SessionStatusCompleted,
+	}
+
+	_, err := svc.GetActiveSession(context.Background(), userID, gameID)
+	if err == nil {
+		t.Fatal("expected error for completed session, got nil")
+	}
+}
+
+// TestGetActiveSessionNoPersistence proves GetActiveSession returns an error
+// when the session repo is nil (persistence not configured).
+func TestGetActiveSessionNoPersistence(t *testing.T) {
+	svc := NewGameService(nil)
+
+	_, err := svc.GetActiveSession(context.Background(), uuid.New(), uuid.New())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if got := err.Error(); got != "persistence not configured" {
+		t.Errorf("unexpected error: %v", err)
 	}
 }
