@@ -15,6 +15,8 @@ import (
 	"casino-backend/internal/service"
 	"casino-backend/internal/storage"
 	"casino-backend/pkg/logger"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // main is the entry point for the Casino backend server.
@@ -58,6 +60,8 @@ func main() {
 	registrationRepo := postgres.NewPostgresRegistrationRepo(pool)
 	kycRepo := postgres.NewPostgresKycRepo(pool)
 	depositAddrRepo := postgres.NewPostgresDepositAddressRepo(pool)
+	betRepo := postgres.NewPostgresBetRepo(pool)
+	sessionRepo := postgres.NewPostgresGameSessionRepo(pool)
 
 	// Email transport seam (design D3 / spec "SMTP seam"): console in dev,
 	// SMTP in production, selected by MAILER_DRIVER.
@@ -71,7 +75,10 @@ func main() {
 
 	authService := service.NewAuthService(userRepo, registrationRepo, refreshRepo, verificationRepo, mail, &cfg.JWT, cfg.Mailer.EmailVerifyTTLMin)
 	walletService := service.NewWalletService(walletRepo)
-	gameService := service.NewGameService(gameRepo)
+	txFunc := func(ctx context.Context, fn func(pgx.Tx) error) error {
+		return postgres.WithTransaction(ctx, pool, fn)
+	}
+	gameService := service.NewGameServiceWithPersistence(gameRepo, walletRepo, betRepo, sessionRepo, txFunc)
 	userService := service.NewUserService(userRepo)
 	kycService := service.NewKycService(kycRepo)
 
@@ -81,8 +88,9 @@ func main() {
 	userHandler := handler.NewUserHandler(userService)
 	kycStore := storage.NewLocalStore(cfg.Storage.KycDir)
 	kycHandler := handler.NewKycHandler(kycService, kycStore)
+	adminHandler := handler.NewAdminHandler(gameService)
 
-	router := handler.NewRouter(authHandler, gameHandler, walletHandler, userHandler, kycHandler, authService, log, cfg.CORS.AllowedOrigins, cfg.RateLimit.TrustedHeader)
+	router := handler.NewRouter(authHandler, gameHandler, walletHandler, userHandler, kycHandler, adminHandler, authService, log, cfg.CORS.AllowedOrigins, cfg.RateLimit.TrustedHeader)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Server.Port,

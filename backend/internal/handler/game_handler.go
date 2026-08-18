@@ -92,7 +92,8 @@ func (h *GameHandler) GetGame(w http.ResponseWriter, r *http.Request) {
 //
 // Requires a valid JWT (Auth middleware). Decodes a domain.PlaceBetRequest; the
 // game_id field is required (must not be uuid.Nil). Returns 400 if the game does
-// not exist or is not active. On success returns the newly created GameSession.
+// not exist or is not active. On success returns the newly created GameSession
+// including server_seed_hash.
 //
 // Response (200): GameSession
 func (h *GameHandler) StartGame(w http.ResponseWriter, r *http.Request) {
@@ -115,5 +116,122 @@ func (h *GameHandler) StartGame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response.JSON(w, http.StatusOK, session)
+	// Persist the session if persistence is configured
+	if h.gameService.HasPersistence() {
+		if err := h.gameService.PersistSession(r.Context(), session); err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to create session")
+			return
+		}
+	}
+
+	// Return only the hash to the client, not the seed
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"session_id":       session.ID,
+		"server_seed_hash": session.ServerSeedHash,
+	})
+}
+
+// PlaceBetRequest is the payload for placing a bet within a session.
+type PlaceBetRequest struct {
+	Amount int64 `json:"amount" validate:"required,gt=0"`
+}
+
+// PlaceBetHandler places a bet within an active game session via POST /api/v1/games/{gameID}/bet.
+//
+// Requires a valid JWT. The bet amount is deducted from the wallet atomically.
+// Returns 200 with the bet result (win/loss + payout).
+func (h *GameHandler) PlaceBetHandler(w http.ResponseWriter, r *http.Request) {
+	gameIDStr := chi.URLParam(r, "gameID")
+	gameID, err := uuid.Parse(gameIDStr)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid game ID")
+		return
+	}
+
+	var req PlaceBetRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.Amount <= 0 {
+		response.Error(w, http.StatusBadRequest, "amount must be positive")
+		return
+	}
+
+	userID := middleware.UserIDFromContext(r.Context())
+
+	// Get active session for this user and game
+	session, err := h.gameService.GetActiveSession(r.Context(), userID, gameID)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "no active session")
+		return
+	}
+
+	// Get game for RTP
+	game, err := h.gameService.GetGame(r.Context(), gameID)
+	if err != nil {
+		response.Error(w, http.StatusNotFound, "game not found")
+		return
+	}
+
+	// Place bet atomically
+	bet, err := h.gameService.PlaceBet(r.Context(), userID, gameID, session.ID, req.Amount)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Resolve the bet
+	payout, multiplier, won := service.ResolveBet(req.Amount, game.RTP)
+
+	if won {
+		if err := h.gameService.CreditWin(r.Context(), bet, payout, multiplier); err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to credit win")
+			return
+		}
+	} else {
+		if err := h.gameService.CreditLoss(r.Context(), bet, multiplier); err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to resolve bet")
+			return
+		}
+	}
+
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"bet_id":    bet.ID,
+		"amount":    req.Amount,
+		"payout":    payout,
+		"multiplier": multiplier,
+		"won":       won,
+	})
+}
+
+// EndSessionHandler ends an active game session via POST /api/v1/games/{gameID}/end.
+//
+// Requires a valid JWT. Marks the session as completed.
+func (h *GameHandler) EndSessionHandler(w http.ResponseWriter, r *http.Request) {
+	gameIDStr := chi.URLParam(r, "gameID")
+	gameID, err := uuid.Parse(gameIDStr)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid game ID")
+		return
+	}
+
+	userID := middleware.UserIDFromContext(r.Context())
+
+	session, err := h.gameService.GetActiveSession(r.Context(), userID, gameID)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "no active session")
+		return
+	}
+
+	if err := h.gameService.EndSession(r.Context(), session.ID); err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to end session")
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"session_id": session.ID,
+		"status":     "completed",
+	})
 }

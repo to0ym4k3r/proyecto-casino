@@ -17,6 +17,7 @@ type Router struct {
 	walletHandler *WalletHandler
 	userHandler   *UserHandler
 	kycHandler    *KycHandler
+	adminHandler  *AdminHandler
 	authService   *service.AuthService
 	logger        zerolog.Logger
 	corsOrigins   string
@@ -30,6 +31,7 @@ func NewRouter(
 	walletHandler *WalletHandler,
 	userHandler *UserHandler,
 	kycHandler *KycHandler,
+	adminHandler *AdminHandler,
 	authService *service.AuthService,
 	log zerolog.Logger,
 	corsOrigins string,
@@ -41,6 +43,7 @@ func NewRouter(
 		walletHandler: walletHandler,
 		userHandler:   userHandler,
 		kycHandler:    kycHandler,
+		adminHandler:  adminHandler,
 		authService:   authService,
 		logger:        log,
 		corsOrigins:   corsOrigins,
@@ -113,6 +116,8 @@ func (rt *Router) Setup() *chi.Mux {
 			r.Group(func(r chi.Router) {
 				r.Use(middleware.Auth(authSvc))
 				r.Post("/start", gameH.StartGame)
+				r.Post("/{gameID}/bet", gameH.PlaceBetHandler)
+				r.Post("/{gameID}/end", gameH.EndSessionHandler)
 			})
 		})
 
@@ -131,6 +136,9 @@ func (rt *Router) Setup() *chi.Mux {
 		r.Route("/admin", func(r chi.Router) {
 			r.Use(middleware.Auth(authSvc))
 			r.Post("/emergency/pause", walletH.AdminEmergencyPause)
+			r.Post("/games", rt.adminHandler.CreateGameHandler)
+			r.Put("/games/{gameID}", rt.adminHandler.UpdateGameHandler)
+			r.Delete("/games/{gameID}", rt.adminHandler.DeleteGameHandler)
 		})
 
 		r.Route("/users", func(r chi.Router) {

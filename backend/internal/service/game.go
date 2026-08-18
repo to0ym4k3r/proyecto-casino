@@ -283,3 +283,39 @@ func (s *GameService) EndSession(ctx context.Context, sessionID uuid.UUID) error
 	}
 	return s.sessionRepo.UpdateStatus(ctx, sessionID, domain.SessionStatusCompleted)
 }
+
+// HasPersistence returns true if the service has database persistence configured.
+func (s *GameService) HasPersistence() bool {
+	return s.sessionRepo != nil
+}
+
+// PersistSession saves a game session to the database.
+func (s *GameService) PersistSession(ctx context.Context, session *domain.GameSession) error {
+	if s.sessionRepo == nil {
+		return fmt.Errorf("persistence not configured")
+	}
+	return s.sessionRepo.Create(ctx, session)
+}
+
+// GetActiveSession retrieves the active session for a user and game.
+func (s *GameService) GetActiveSession(ctx context.Context, userID, gameID uuid.UUID) (*domain.GameSession, error) {
+	if s.sessionRepo == nil {
+		return nil, fmt.Errorf("persistence not configured")
+	}
+	return nil, fmt.Errorf("no active session found: persistence query not yet implemented")
+}
+
+// CreateGame persists a new game to the database.
+func (s *GameService) CreateGame(ctx context.Context, game *domain.Game) error {
+	return s.gameRepo.Create(ctx, game)
+}
+
+// UpdateGame persists game changes to the database.
+func (s *GameService) UpdateGame(ctx context.Context, game *domain.Game) error {
+	return s.gameRepo.Update(ctx, game)
+}
+
+// DeleteGame removes a game from the database.
+func (s *GameService) DeleteGame(ctx context.Context, id uuid.UUID) error {
+	return s.gameRepo.Delete(ctx, id)
+}
