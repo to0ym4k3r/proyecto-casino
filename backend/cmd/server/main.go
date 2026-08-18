@@ -76,7 +76,7 @@ func main() {
 
 	authHandler := handler.NewAuthHandler(authService)
 	gameHandler := handler.NewGameHandler(gameService)
-	walletHandler := handler.NewWalletHandler(walletService)
+	walletHandler := handler.NewWalletHandler(walletService, nil, nil)
 	userHandler := handler.NewUserHandler(userService)
 	kycStore := storage.NewLocalStore(cfg.Storage.KycDir)
 	kycHandler := handler.NewKycHandler(kycService, kycStore)

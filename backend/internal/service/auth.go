@@ -387,6 +387,28 @@ func (s *AuthService) ValidateToken(tokenStr string) (uuid.UUID, error) {
 	return userID, nil
 }
 
+// GetClaim extracts a string claim from a JWT access token.
+// Returns the claim value and true if found, or ("", false) if missing/invalid.
+func (s *AuthService) GetClaim(tokenStr string, claimName string) (string, bool) {
+	token, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
+		return []byte(s.cfg.Secret), nil
+	})
+	if err != nil || !token.Valid {
+		return "", false
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", false
+	}
+
+	val, ok := claims[claimName].(string)
+	return val, ok
+}
+
 // parseRefreshClaims validates a refresh JWT and returns its subject user ID.
 func (s *AuthService) parseRefreshClaims(refreshTokenStr string) (uuid.UUID, error) {
 	token, err := jwt.Parse(refreshTokenStr, func(t *jwt.Token) (interface{}, error) {

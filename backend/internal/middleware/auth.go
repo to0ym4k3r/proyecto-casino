@@ -17,12 +17,25 @@ type contextKey string
 // Handlers retrieve it via middleware.UserIDFromContext(ctx).
 const UserIDKey contextKey = "user_id"
 
+// RoleKey is the context key under which the user's role is stored (e.g. "admin", "user").
+const RoleKey contextKey = "role"
+
 // UserIDFromContext returns the authenticated user's UUID stored in the request
 // context by the Auth middleware. It returns uuid.Nil when the context carries
 // no user ID (e.g. on unauthenticated requests).
 func UserIDFromContext(ctx context.Context) uuid.UUID {
 	userID, _ := ctx.Value(UserIDKey).(uuid.UUID)
 	return userID
+}
+
+// RoleFromContext returns the user's role stored in the request context.
+// Returns "user" (default) when no role is set.
+func RoleFromContext(ctx context.Context) string {
+	role, _ := ctx.Value(RoleKey).(string)
+	if role == "" {
+		return "user"
+	}
+	return role
 }
 
 // Auth returns a middleware that validates JWT access tokens from the
@@ -57,6 +70,12 @@ func Auth(authService *service.AuthService) func(http.Handler) http.Handler {
 			}
 
 			ctx := context.WithValue(r.Context(), UserIDKey, userID)
+
+			// Extract role from JWT claims if present
+			if role, ok := authService.GetClaim(parts[1], "role"); ok {
+				ctx = context.WithValue(ctx, RoleKey, role)
+			}
+
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

@@ -1,10 +1,14 @@
 package domain
 
 import (
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+// ErrNotFound is returned when a requested entity does not exist.
+var ErrNotFound = errors.New("not found")
 
 // Wallet represents a user's financial balance.
 // Balance is stored in integer cents (e.g. 15000 = $150.00).
@@ -116,4 +120,12 @@ type TxHistoryResult struct {
 	Total        int        `json:"total"`
 	Page         int        `json:"page"`
 	Limit        int        `json:"limit"`
+}
+
+// DepositAddress represents a user's derived Solana deposit addresses.
+type DepositAddress struct {
+	UserID    uuid.UUID `json:"user_id"`
+	UserIndex int       `json:"user_index"`
+	SolAddr   string    `json:"sol_address"`
+	UsdcATA   string    `json:"usdc_ata"`
 }

@@ -121,6 +121,16 @@ func (rt *Router) Setup() *chi.Mux {
 			r.Get("/balance", walletH.GetBalance)
 			r.Post("/deposit", walletH.Deposit)
 			r.Post("/withdraw", walletH.Withdraw)
+			r.Post("/deposit/sol", walletH.DepositSOL)
+			r.Post("/deposit/usdc", walletH.DepositUSDC)
+			r.Post("/withdraw/sol", walletH.WithdrawSOL)
+			r.Post("/withdraw/usdc", walletH.WithdrawUSDC)
+			r.Get("/tx-history", walletH.GetTxHistory)
+		})
+
+		r.Route("/admin", func(r chi.Router) {
+			r.Use(middleware.Auth(authSvc))
+			r.Post("/emergency/pause", walletH.AdminEmergencyPause)
 		})
 
 		r.Route("/users", func(r chi.Router) {
