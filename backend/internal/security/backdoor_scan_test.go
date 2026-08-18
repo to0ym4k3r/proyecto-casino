@@ -62,7 +62,7 @@ func findPattern(t *testing.T, root string, files []string, pat string) []string
 	allowed := map[string]bool{
 		"internal/handler/router.go:131":                        true,
 		"internal/handler/wallet_handler.go:268":                true,
-		"internal/handler/wallet_handler_crypto_test.go:228":    true,
+		"internal/handler/wallet_handler_crypto_test.go:229":    true,
 	}
 
 	var hits []string
