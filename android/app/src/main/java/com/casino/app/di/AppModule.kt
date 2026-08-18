@@ -7,10 +7,12 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.casino.app.BuildConfig
 import com.casino.app.data.api.AuthApi
 import com.casino.app.data.api.AuthInterceptor
+import com.casino.app.data.api.GameApi
 import com.casino.app.data.api.KycApi
 import com.casino.app.data.api.UserApi
 import com.casino.app.data.api.WalletApi
 import com.casino.app.data.auth.AuthRepository
+import com.casino.app.data.game.GameRepository
 import com.casino.app.data.kyc.KycRepository
 import com.casino.app.data.profile.ProfileRepository
 import com.casino.app.data.token.TokenStore
@@ -142,4 +144,13 @@ object AppModule {
     @Singleton
     fun provideWalletRepository(walletApi: WalletApi): WalletRepository =
         WalletRepository(walletApi)
+
+    @Provides
+    @Singleton
+    fun provideGameApi(retrofit: Retrofit): GameApi = retrofit.create(GameApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideGameRepository(gameApi: GameApi): GameRepository =
+        GameRepository(gameApi)
 }

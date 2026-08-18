@@ -205,8 +205,13 @@ private fun MainNavGraph() {
             startDestination = Screen.Lobby.route,
             modifier = Modifier.padding(innerPadding)
         ) {
-            composable(Screen.Lobby.route) { LobbyScreen() }
+            composable(Screen.Lobby.route) {
+                LobbyScreen(
+                    onGameClick = { gameId -> navController.navigate("game/$gameId") },
+                )
+            }
             composable(Screen.Game.route) { GameScreen() }
+            composable("game/{gameId}") { GameScreen() }
             composable(Screen.Wallet.route) { WalletScreen() }
             composable(Screen.Profile.route) {
                 ProfileScreen(

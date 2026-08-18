@@ -97,10 +97,12 @@ data class GameCard(
  * of game cards. Manages local state for search query and selected category.
  *
  * @param viewModel The [LobbyViewModel] injected via Hilt for lobby state management.
+ * @param onGameClick Called when a game card is tapped, receiving the game name as a placeholder ID.
  */
 @Composable
 fun LobbyScreen(
-    viewModel: LobbyViewModel = hiltViewModel()
+    viewModel: LobbyViewModel = hiltViewModel(),
+    onGameClick: (String) -> Unit = {},
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
@@ -201,7 +203,7 @@ fun LobbyScreen(
             modifier = Modifier.fillMaxSize()
         ) {
             items(sampleGames) { game ->
-                GameCardView(game = game)
+                GameCardView(game = game, onClick = { onGameClick(game.name) })
             }
         }
     }
@@ -217,7 +219,7 @@ fun LobbyScreen(
  * @param game The [GameCard] data to render.
  */
 @Composable
-private fun GameCardView(game: GameCard) {
+private fun GameCardView(game: GameCard, onClick: () -> Unit = {}) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -228,7 +230,7 @@ private fun GameCardView(game: GameCard) {
                     colors = listOf(BgPrimary, BgElevated)
                 )
             )
-            .clickable { /* Navigate to game */ },
+            .clickable { onClick() },
         contentAlignment = Alignment.BottomStart
     ) {
         // Tag badge
