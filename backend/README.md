@@ -65,9 +65,22 @@ El servidor arranca en `http://localhost:8080` por defecto.
 | `PUBNUB_PUBLISH_KEY` | Clave pub de PubNub | -- |
 | `PUBNUB_SUBSCRIBE_KEY` | Clave sub de PubNub | -- |
 | `PUBNUB_SECRET_KEY` | Secreto de PubNub | -- |
-| `SOLANA_RPC_URL` | URL del RPC de Solana | -- |
-| `SOLANA_WALLET_PRIVATE_KEY` | Clave privada del wallet (nunca en codigo!) | -- |
+| `SOLANA_RPC_URL` | URL del RPC de Solana (Testnet) | -- |
+| `SOLANA_HOT_WALLET_KEY` | Clave privada del hot wallet (Base58) | -- |
+| `SOLANA_NETWORK` | Red de Solana (testnet/mainnet-beta) | testnet |
+| `SOLANA_COMMITMENT` | Nivel de compromiso de confirmacion | finalized |
+| `SOLANA_CONFIRMATIONS` | Confirmaciones minimas para deposito | 32 |
+| `SOLANA_MAX_OUTFLOW_PCT` | Maximo porcentaje de outflow del hot wallet (24h) | 30 |
+| `SOLANA_USDC_MINT` | Address del mint de USDC en Solana | EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v |
 | `CORS_ALLOWED_ORIGINS` | Origenes CORS permitidos | http://localhost:3000 |
+
+### Hot Wallet Key Management
+
+**MVP (actual)**: La clave privada del hot wallet se almacena como variable de entorno `SOLANA_HOT_WALLET_KEY` en Base58. Esto es suficiente para desarrollo y testing.
+
+**Ruta de upgrade a HSM**: Para produccion, reemplazar la carga de la clave por un cliente HSM (AWS KMS, GCP Cloud HSM, o HashiCorp Vault Transit). El cambio es puntual: reemplazar `keypair.FromBase58()` en `hot_wallet.go` por una implementacion de `solana.Signer` que delegue al HSM.
+
+> **WARNING**: Nunca commitear la clave privada en `.env` o en el repositorio. Usar `.env.example` como plantilla.
 
 ## Endpoints API
 
@@ -149,9 +162,44 @@ El servidor arranca en `http://localhost:8080` por defecto.
 
 | Metodo | Ruta | Auth | Descripcion |
 |--------|------|------|------------|
-| `GET` | `/api/v1/wallet/balance` | Si | Ver balance actual |
-| `POST` | `/api/v1/wallet/deposit` | Si | Depositar fondos |
-| `POST` | `/api/v1/wallet/withdraw` | Si | Retirar fondos |
+| `GET` | `/api/v1/wallet/balance` | Si | Ver balance actual (integer cents) |
+| `POST` | `/api/v1/wallet/deposit` | Si | Depositar fondos (ficticio, balance interno) |
+| `POST` | `/api/v1/wallet/withdraw` | Si | Retirar fondos (ficticio, balance interno) |
+| `POST` | `/api/v1/wallet/deposit/sol` | Si | Obtener direccion de deposito SOL + QR |
+| `POST` | `/api/v1/wallet/deposit/usdc` | Si | Obtener ATA de deposito USDC + QR |
+| `POST` | `/api/v1/wallet/withdraw/sol` | Si | Solicitar retiro SOL (KYC + rate limits) |
+| `POST` | `/api/v1/wallet/withdraw/usdc` | Si | Solicitar retiro USDC (KYC + rate limits) |
+| `GET` | `/api/v1/wallet/tx-history` | Si | Historial de transacciones Solana (paginado, filtrable) |
+| `POST` | `/api/v1/admin/emergency/pause` | Admin | Toggle de pausa de emergencia (bloquea retiros) |
+
+#### GET /api/v1/wallet/tx-history
+Query params: `type` (deposit|withdraw), `after` (RFC3339), `before` (RFC3339), `page`, `limit`
+
+```json
+{
+  "success": true,
+  "data": {
+    "transactions": [
+      {
+        "id": "uuid",
+        "wallet_id": "uuid",
+        "tx_hash": "abc123...",
+        "type": "deposit",
+        "amount": 5000,
+        "from_address": "SENDER...",
+        "to_address": "RECEIVER...",
+        "confirmations": 32,
+        "network_fee": 500,
+        "usd_value_at_time": 5000,
+        "created_at": "2026-08-10T12:00:00Z"
+      }
+    ],
+    "total": 42,
+    "page": 1,
+    "limit": 50
+  }
+}
+```
 
 ## Autenticacion
 

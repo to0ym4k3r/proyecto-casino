@@ -9,15 +9,17 @@ import (
 
 	"casino-backend/internal/domain"
 	"casino-backend/internal/middleware"
+	"casino-backend/internal/repository/postgres"
 	"casino-backend/internal/service"
 	"casino-backend/pkg/response"
 )
 
 // WalletHandler handles HTTP requests for wallet operations.
 type WalletHandler struct {
-	walletService  *service.WalletService
-	withdrawalSvc  *service.WithdrawalService
-	txHistorySvc   *service.TxHistoryService
+	walletService   *service.WalletService
+	withdrawalSvc   *service.WithdrawalService
+	txHistorySvc    *service.TxHistoryService
+	depositAddrRepo postgres.DepositAddressRepository
 }
 
 // NewWalletHandler creates a new wallet handler.
@@ -25,11 +27,13 @@ func NewWalletHandler(
 	walletService *service.WalletService,
 	withdrawalSvc *service.WithdrawalService,
 	txHistorySvc *service.TxHistoryService,
+	depositAddrRepo postgres.DepositAddressRepository,
 ) *WalletHandler {
 	return &WalletHandler{
-		walletService: walletService,
-		withdrawalSvc: withdrawalSvc,
-		txHistorySvc:  txHistorySvc,
+		walletService:   walletService,
+		withdrawalSvc:   withdrawalSvc,
+		txHistorySvc:    txHistorySvc,
+		depositAddrRepo: depositAddrRepo,
 	}
 }
 
@@ -106,19 +110,15 @@ type depositSOLResponse struct {
 func (h *WalletHandler) DepositSOL(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserIDFromContext(r.Context())
 
-	// Get wallet to derive address (simplified: uses wallet ID as seed)
-	wallet, err := h.walletService.GetBalance(r.Context(), userID)
+	da, err := h.depositAddrRepo.GetByUserID(r.Context(), userID)
 	if err != nil {
-		response.Error(w, http.StatusNotFound, "wallet not found")
+		response.Error(w, http.StatusNotFound, "deposit address not found — please complete wallet setup")
 		return
 	}
 
-	// In production, this derives from HD wallet; here we use a deterministic placeholder
-	addr := fmt.Sprintf("SOL_%s", wallet.ID.String()[:16])
-
 	response.JSON(w, http.StatusOK, depositSOLResponse{
-		Address: addr,
-		QRData:  fmt.Sprintf("solana:%s", addr),
+		Address: da.SolAddr,
+		QRData:  fmt.Sprintf("solana:%s", da.SolAddr),
 	})
 }
 
@@ -126,24 +126,20 @@ func (h *WalletHandler) DepositSOL(w http.ResponseWriter, r *http.Request) {
 func (h *WalletHandler) DepositUSDC(w http.ResponseWriter, r *http.Request) {
 	userID := middleware.UserIDFromContext(r.Context())
 
-	wallet, err := h.walletService.GetBalance(r.Context(), userID)
+	da, err := h.depositAddrRepo.GetByUserID(r.Context(), userID)
 	if err != nil {
-		response.Error(w, http.StatusNotFound, "wallet not found")
+		response.Error(w, http.StatusNotFound, "deposit address not found — please complete wallet setup")
 		return
 	}
-
-	// In production, this derives ATA from HD wallet; here we use a deterministic placeholder
-	solAddr := fmt.Sprintf("SOL_%s", wallet.ID.String()[:16])
-	ata := fmt.Sprintf("ATA_%s", wallet.ID.String()[:16])
 
 	response.JSON(w, http.StatusOK, struct {
 		Address string `json:"address"`
 		ATA     string `json:"ata"`
 		QRData  string `json:"qr_data"`
 	}{
-		Address: solAddr,
-		ATA:     ata,
-		QRData:  fmt.Sprintf("solana:%s", ata),
+		Address: da.SolAddr,
+		ATA:     da.USDCAta,
+		QRData:  fmt.Sprintf("solana:%s", da.USDCAta),
 	})
 }
 

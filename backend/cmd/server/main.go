@@ -57,6 +57,7 @@ func main() {
 	verificationRepo := postgres.NewPostgresEmailVerificationRepo(pool)
 	registrationRepo := postgres.NewPostgresRegistrationRepo(pool)
 	kycRepo := postgres.NewPostgresKycRepo(pool)
+	depositAddrRepo := postgres.NewPostgresDepositAddressRepo(pool)
 
 	// Email transport seam (design D3 / spec "SMTP seam"): console in dev,
 	// SMTP in production, selected by MAILER_DRIVER.
@@ -76,7 +77,7 @@ func main() {
 
 	authHandler := handler.NewAuthHandler(authService)
 	gameHandler := handler.NewGameHandler(gameService)
-	walletHandler := handler.NewWalletHandler(walletService, nil, nil)
+	walletHandler := handler.NewWalletHandler(walletService, nil, nil, depositAddrRepo)
 	userHandler := handler.NewUserHandler(userService)
 	kycStore := storage.NewLocalStore(cfg.Storage.KycDir)
 	kycHandler := handler.NewKycHandler(kycService, kycStore)

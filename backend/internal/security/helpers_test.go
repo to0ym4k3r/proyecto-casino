@@ -527,7 +527,7 @@ func newTestHandlers(t *testing.T, secret string) *testHandlers {
 
 	return &testHandlers{
 		auth:       handler.NewAuthHandler(authSvc),
-		wallet:     handler.NewWalletHandler(walletSvc, nil, nil),
+		wallet:     handler.NewWalletHandler(walletSvc, nil, nil, nil),
 		game:       handler.NewGameHandler(gameSvc),
 		user:       handler.NewUserHandler(userSvc),
 		kyc:        handler.NewKycHandler(kycSvc, &memStore{}),

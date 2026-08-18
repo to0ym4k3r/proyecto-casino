@@ -11,6 +11,7 @@ import (
 	"casino-backend/internal/config"
 	"casino-backend/internal/domain"
 	"casino-backend/internal/middleware"
+	"casino-backend/internal/repository/postgres"
 	"casino-backend/internal/service"
 
 	"github.com/google/uuid"
@@ -24,17 +25,20 @@ type fakeDepositAddressRepo struct {
 	exist bool
 }
 
-func (f *fakeDepositAddressRepo) Create(_ context.Context, _ *domain.DepositAddress) error { return nil }
-func (f *fakeDepositAddressRepo) GetByUserID(_ context.Context, _ uuid.UUID) (*domain.DepositAddress, error) {
+func (f *fakeDepositAddressRepo) Create(_ context.Context, _ *postgres.DepositAddress) error { return nil }
+func (f *fakeDepositAddressRepo) GetByUserID(_ context.Context, _ uuid.UUID) (*postgres.DepositAddress, error) {
 	if f.exist {
-		return &domain.DepositAddress{
+		return &postgres.DepositAddress{
 			UserID:    uuid.New(),
 			UserIndex: 1,
 			SolAddr:   f.addr,
-			UsdcATA:   f.ata,
+			USDCAta:   f.ata,
 		}, nil
 	}
 	return nil, domain.ErrNotFound
+}
+func (f *fakeDepositAddressRepo) AllocateIndex(_ context.Context, _ uuid.UUID) (int, error) {
+	return 1, nil
 }
 
 type fakeWithdrawalRepoForHandler struct{}
@@ -84,11 +88,16 @@ func newTestWalletHandlerWithDeps(secret string) (*WalletHandler, *service.AuthS
 		func(_ context.Context) (bool, error) { return false, nil },
 	)
 	txHistorySvc := service.NewTxHistoryService(&fakeSolanaTxRepoForHandler{})
+	depositAddrRepo := &fakeDepositAddressRepo{
+		addr:  "FakeSOLAddress123",
+		ata:   "FakeUSDCAta456",
+		exist: true,
+	}
 	authSvc := service.NewAuthService(nil, nil, nil, nil, nil, &config.JWTConfig{
 		Secret: secret, AccessExpiry: 15 * time.Minute, RefreshExpiry: 7 * 24 * time.Hour,
 	}, time.Hour)
 
-	h := NewWalletHandler(walletSvc, withdrawalSvc, txHistorySvc)
+	h := NewWalletHandler(walletSvc, withdrawalSvc, txHistorySvc, depositAddrRepo)
 	return h, authSvc
 }
 
@@ -111,8 +120,11 @@ func TestDepositSOLReturnsAddress(t *testing.T) {
 		t.Errorf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, "solana:") {
-		t.Errorf("body should contain solana: URI, got: %s", body)
+	if !strings.Contains(body, "FakeSOLAddress123") {
+		t.Errorf("body should contain deposit address, got: %s", body)
+	}
+	if !strings.Contains(body, "solana:FakeSOLAddress123") {
+		t.Errorf("body should contain solana: URI with address, got: %s", body)
 	}
 }
 
@@ -131,6 +143,13 @@ func TestDepositUSDCReturnsATA(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200 (body: %s)", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "FakeUSDCAta456") {
+		t.Errorf("body should contain USDC ATA, got: %s", body)
+	}
+	if !strings.Contains(body, "solana:FakeUSDCAta456") {
+		t.Errorf("body should contain solana: URI with ATA, got: %s", body)
 	}
 }
 

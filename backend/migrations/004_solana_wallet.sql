@@ -82,3 +82,29 @@ CREATE INDEX IF NOT EXISTS idx_solana_txs_tx_hash ON solana_txs(tx_hash);
 
 -- Emergency pause flag (runtime config via DB)
 ALTER TABLE wallets ADD COLUMN IF NOT EXISTS emergency_pause BOOLEAN DEFAULT FALSE;
+
+-- ============================================================
+-- ROLLBACK (down migration): restore NUMERIC columns, drop new tables
+-- ============================================================
+
+-- DROP new tables and sequence (order matters: dependent objects first)
+-- DROP TABLE IF EXISTS solana_txs;
+-- DROP TABLE IF EXISTS withdrawals;
+-- DROP TABLE IF EXISTS deposit_addresses;
+-- DROP SEQUENCE IF EXISTS user_deposit_index_seq;
+
+-- Remove added wallet columns
+-- ALTER TABLE wallets DROP COLUMN IF EXISTS emergency_pause;
+-- ALTER TABLE wallets DROP COLUMN IF EXISTS usdc_ata;
+-- ALTER TABLE wallets DROP COLUMN IF EXISTS solana_address;
+
+-- Restore monetary columns to NUMERIC
+-- ALTER TABLE wallets DROP CONSTRAINT IF EXISTS wallets_balance_non_negative;
+-- ALTER TABLE wallets ALTER COLUMN balance TYPE NUMERIC(15,2) USING (balance / 100.0);
+-- ALTER TABLE wallets ALTER COLUMN balance SET DEFAULT 0;
+
+-- ALTER TABLE transactions ALTER COLUMN amount TYPE NUMERIC(15,2) USING (amount / 100.0);
+-- ALTER TABLE transactions ALTER COLUMN balance_after TYPE NUMERIC(15,2) USING (balance_after / 100.0);
+
+-- ALTER TABLE bets ALTER COLUMN amount TYPE NUMERIC(10,2) USING (amount / 100.0);
+-- ALTER TABLE bets ALTER COLUMN result TYPE NUMERIC(10,2) USING (result / 100.0);

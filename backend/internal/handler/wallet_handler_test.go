@@ -85,7 +85,7 @@ func TestGetBalanceWithValidJWT(t *testing.T) {
 
 	repo := &fakeWalletRepo{wallet: wantWallet}
 	authSvc := service.NewAuthService(nil, nil, nil, nil, nil, &config.JWTConfig{Secret: secret, AccessExpiry: 15 * time.Minute, RefreshExpiry: 7 * 24 * time.Hour}, time.Hour)
-	h := NewWalletHandler(service.NewWalletService(repo), nil, nil)
+	h := NewWalletHandler(service.NewWalletService(repo), nil, nil, nil)
 
 	route := middleware.Auth(authSvc)(http.HandlerFunc(h.GetBalance))
 
@@ -123,7 +123,7 @@ func TestDepositRejectsDecimalCents(t *testing.T) {
 
 	repo := &fakeWalletRepo{wallet: wallet}
 	authSvc := service.NewAuthService(nil, nil, nil, nil, nil, &config.JWTConfig{Secret: secret, AccessExpiry: 15 * time.Minute, RefreshExpiry: 7 * 24 * time.Hour}, time.Hour)
-	h := NewWalletHandler(service.NewWalletService(repo), nil, nil)
+	h := NewWalletHandler(service.NewWalletService(repo), nil, nil, nil)
 
 	route := middleware.Auth(authSvc)(http.HandlerFunc(h.Deposit))
 
@@ -148,7 +148,7 @@ func TestDepositRejectsDecimalCents(t *testing.T) {
 // 404 instead of panicking when the context carries no user ID under the typed key.
 func TestGetBalanceWithoutUserIDDoesNotPanic(t *testing.T) {
 	repo := &fakeWalletRepo{err: errors.New("wallet not found")}
-	h := NewWalletHandler(service.NewWalletService(repo), nil, nil)
+	h := NewWalletHandler(service.NewWalletService(repo), nil, nil, nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/wallet/balance", nil)
 	rec := httptest.NewRecorder()
