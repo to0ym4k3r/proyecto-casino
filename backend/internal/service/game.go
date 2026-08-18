@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"time"
 
 	"casino-backend/internal/domain"
 	"casino-backend/internal/repository"
@@ -62,12 +63,12 @@ func (s *GameService) StartGame(ctx context.Context, userID, gameID uuid.UUID) (
 	}
 
 	session := &domain.GameSession{
-		ID:        uuid.New(),
-		UserID:    userID,
-		GameID:    gameID,
-		Status:    "active",
-		Balance:   0,
-		CreatedAt: game.CreatedAt,
+		ID:              uuid.New(),
+		UserID:          userID,
+		GameID:          gameID,
+		Status:          domain.SessionStatusActive,
+		BalanceSnapshot: 0,
+		StartedAt:       time.Now().UTC(),
 	}
 
 	return session, nil
