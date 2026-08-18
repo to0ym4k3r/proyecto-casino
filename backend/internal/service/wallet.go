@@ -35,7 +35,7 @@ func (s *WalletService) GetBalance(ctx context.Context, userID uuid.UUID) (*doma
 // Returns an error if the wallet is not found or the version has changed.
 // On success a Transaction of type TransactionDeposit is persisted and the
 // refreshed wallet is returned.
-func (s *WalletService) Deposit(ctx context.Context, userID uuid.UUID, amount float64) (*domain.Wallet, error) {
+func (s *WalletService) Deposit(ctx context.Context, userID uuid.UUID, amount int64) (*domain.Wallet, error) {
 	wallet, err := s.walletRepo.GetByUserID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("wallet not found: %w", err)
@@ -67,14 +67,14 @@ func (s *WalletService) Deposit(ctx context.Context, userID uuid.UUID, amount fl
 // Returns an error if the wallet is not found, the balance is insufficient, or
 // the optimistic version lock fails. On success a Transaction of type
 // TransactionWithdraw is persisted and the refreshed wallet is returned.
-func (s *WalletService) Withdraw(ctx context.Context, userID uuid.UUID, amount float64) (*domain.Wallet, error) {
+func (s *WalletService) Withdraw(ctx context.Context, userID uuid.UUID, amount int64) (*domain.Wallet, error) {
 	wallet, err := s.walletRepo.GetByUserID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("wallet not found: %w", err)
 	}
 
 	if wallet.Balance < amount {
-		return nil, fmt.Errorf("insufficient balance: have %.2f, want %.2f", wallet.Balance, amount)
+		return nil, fmt.Errorf("insufficient balance: have %d, want %d", wallet.Balance, amount)
 	}
 
 	if err := s.walletRepo.UpdateBalance(ctx, wallet.ID, -amount, wallet.Version); err != nil {

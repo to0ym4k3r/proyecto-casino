@@ -43,7 +43,7 @@ func (f *fakeWalletRepo) GetByUserID(_ context.Context, userID uuid.UUID) (*doma
 	return f.wallet, nil
 }
 
-func (f *fakeWalletRepo) UpdateBalance(_ context.Context, _ uuid.UUID, _ float64, _ int) error {
+func (f *fakeWalletRepo) UpdateBalance(_ context.Context, _ uuid.UUID, _ int64, _ int) error {
 	return nil
 }
 
@@ -76,7 +76,7 @@ func TestGetBalanceWithValidJWT(t *testing.T) {
 	wantWallet := &domain.Wallet{
 		ID:        uuid.New(),
 		UserID:    userID,
-		Balance:   250.5,
+		Balance:   25050, // 25050 cents = $250.50
 		Currency:  "USD",
 		Version:   1,
 		CreatedAt: time.Now().UTC(),
@@ -101,8 +101,46 @@ func TestGetBalanceWithValidJWT(t *testing.T) {
 	if repo.gotUserID != userID {
 		t.Errorf("service received userID %v, want %v", repo.gotUserID, userID)
 	}
-	if !strings.Contains(rec.Body.String(), `"balance":250.5`) {
-		t.Errorf("body = %s, want balance 250.5 in response", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), `"balance":25050`) {
+		t.Errorf("body = %s, want balance:25050 in response", rec.Body.String())
+	}
+}
+
+// TestDepositRejectsDecimalCents asserts that deposit with decimal amount (150.50)
+// is rejected when Balance is int64 cents. This test WILL FAIL with current float64
+// implementation because float64 passes decimal validation — proving the type needs
+// to change.
+func TestDepositRejectsDecimalCents(t *testing.T) {
+	const secret = "test-secret"
+	userID := uuid.New()
+	wallet := &domain.Wallet{
+		ID:       uuid.New(),
+		UserID:   userID,
+		Balance:  15000,
+		Currency: "USD",
+		Version:  1,
+	}
+
+	repo := &fakeWalletRepo{wallet: wallet}
+	authSvc := service.NewAuthService(nil, nil, nil, nil, nil, &config.JWTConfig{Secret: secret, AccessExpiry: 15 * time.Minute, RefreshExpiry: 7 * 24 * time.Hour}, time.Hour)
+	h := NewWalletHandler(service.NewWalletService(repo))
+
+	route := middleware.Auth(authSvc)(http.HandlerFunc(h.Deposit))
+
+	// Decimal cents are invalid — should be rejected
+	body := `{"amount": 150.50}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/wallet/deposit", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+signAccessToken(t, secret, userID))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	route.ServeHTTP(rec, req)
+
+	// With int64 this MUST return 400 (decimal not allowed in cents).
+	// With current float64 it returns 200 (passes validation) — proving the type
+	// needs to change.
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400 for decimal cents (body: %s)", rec.Code, rec.Body.String())
 	}
 }
 

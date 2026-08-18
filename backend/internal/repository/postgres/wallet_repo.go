@@ -89,7 +89,7 @@ func (r *PostgresWalletRepo) GetByUserID(ctx context.Context, userID uuid.UUID) 
 }
 
 // UpdateBalance atomically updates a wallet's balance using optimistic locking.
-func (r *PostgresWalletRepo) UpdateBalance(ctx context.Context, id uuid.UUID, amount float64, version int) error {
+func (r *PostgresWalletRepo) UpdateBalance(ctx context.Context, id uuid.UUID, amount int64, version int) error {
 	query := `
 		UPDATE wallets
 		SET balance = balance + $2, version = version + 1, updated_at = NOW()

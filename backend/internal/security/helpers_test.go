@@ -172,7 +172,7 @@ func (r *memWalletRepo) GetByUserID(_ context.Context, userID uuid.UUID) (*domai
 	return nil, errors.New("wallet not found")
 }
 
-func (r *memWalletRepo) UpdateBalance(_ context.Context, id uuid.UUID, amount float64, version int) error {
+func (r *memWalletRepo) UpdateBalance(_ context.Context, id uuid.UUID, amount int64, version int) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	w, ok := r.byID[id]

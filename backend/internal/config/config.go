@@ -19,6 +19,7 @@ type Config struct {
 	Security  SecurityConfig
 	Mailer    MailerConfig
 	Storage   StorageConfig
+	Solana    SolanaConfig
 }
 
 // ServerConfig holds HTTP server settings.
@@ -94,6 +95,17 @@ type StorageConfig struct {
 	KycDir string
 }
 
+// SolanaConfig holds Solana blockchain integration settings.
+// Hot wallet key is loaded from SOLANA_HOT_WALLET_KEY (base58 encoded).
+// Dev: env var encrypted with sops. Prod: Vault/KMS (documented path).
+type SolanaConfig struct {
+	RPCURL               string
+	HotWalletKey         string
+	Network              string // devnet, testnet, mainnet-beta
+	CommitmentLevel      string // confirmed, finalized
+	ConfirmationsRequired int
+}
+
 // Load reads configuration from environment variables and .env file.
 //
 // It never returns an error so cmd/migrate keeps working without a JWT secret;
@@ -145,6 +157,13 @@ func Load() *Config {
 		Storage: StorageConfig{
 			KycDir: getEnv("KYC_STORAGE_DIR", "./data/kyc"),
 		},
+		Solana: SolanaConfig{
+			RPCURL:               getEnv("SOLANA_RPC_URL", ""),
+			HotWalletKey:         getEnv("SOLANA_HOT_WALLET_KEY", ""),
+			Network:              getEnv("SOLANA_NETWORK", ""),
+			CommitmentLevel:      getEnv("SOLANA_COMMITMENT", ""),
+			ConfirmationsRequired: getInt("SOLANA_CONFIRMATIONS", 32),
+		},
 	}
 }
 
@@ -154,6 +173,18 @@ func Load() *Config {
 func (c *Config) ValidateJWTSecret() error {
 	if len(c.JWT.Secret) < 32 {
 		return fmt.Errorf("JWT_SECRET must be at least 32 bytes long (got %d): set a strong secret before starting the server", len(c.JWT.Secret))
+	}
+	return nil
+}
+
+// ValidateSolanaConfig reports whether the Solana configuration is complete
+// enough to operate. Server fails fast at startup when it returns an error.
+func (c *Config) ValidateSolanaConfig() error {
+	if c.Solana.HotWalletKey == "" {
+		return fmt.Errorf("SOLANA_HOT_WALLET_KEY is required: set the hot wallet private key in base58 format")
+	}
+	if c.Solana.RPCURL == "" {
+		return fmt.Errorf("SOLANA_RPC_URL is required: set the Solana RPC endpoint URL")
 	}
 	return nil
 }

@@ -37,8 +37,8 @@ func TestMigrationsDirLoadsKycAndAuthInOrder(t *testing.T) {
 		t.Fatalf("LoadMigrations(%s): %v", migrationsDir, err)
 	}
 
-	wantVersions := []string{"001", "002", "003"}
-	wantPaths := []string{"001_init.sql", "002_kyc.sql", "003_auth.sql"}
+	wantVersions := []string{"001", "002", "003", "004"}
+	wantPaths := []string{"001_init.sql", "002_kyc.sql", "003_auth.sql", "004_solana_wallet.sql"}
 	if len(migrations) != len(wantVersions) {
 		t.Fatalf("loaded %d migrations, want %d (%v); got %v", len(migrations), len(wantVersions), wantVersions, migrationPaths(migrations))
 	}
