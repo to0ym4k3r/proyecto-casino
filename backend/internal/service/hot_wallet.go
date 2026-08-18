@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/programs/system"
 	"github.com/gagliardetto/solana-go/rpc"
 )
 
@@ -65,13 +66,37 @@ func (hw *HotWallet) SendSOL(ctx context.Context, to string, lamports uint64) (s
 		return "", fmt.Errorf("parse destination: %w", err)
 	}
 
-	sig, err := hw.rpcClient.SendTransaction(ctx, nil) // placeholder - real implementation builds a Transaction
+	recentBlockhash, err := hw.rpcClient.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
+	if err != nil {
+		return "", fmt.Errorf("get recent blockhash: %w", err)
+	}
+
+	transferIx := system.NewTransferInstruction(lamports, hw.publicKey, toPubkey).Build()
+
+	tx, err := solana.NewTransaction(
+		[]solana.Instruction{transferIx},
+		recentBlockhash.Value.Blockhash,
+		solana.TransactionPayer(hw.publicKey),
+	)
+	if err != nil {
+		return "", fmt.Errorf("build transaction: %w", err)
+	}
+
+	_, err = tx.Sign(func(key solana.PublicKey) *solana.PrivateKey {
+		if key == hw.publicKey {
+			return &hw.keypair
+		}
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("sign transaction: %w", err)
+	}
+
+	sig, err := hw.rpcClient.SendTransaction(ctx, tx)
 	if err != nil {
 		return "", fmt.Errorf("send SOL: %w", err)
 	}
 
-	_ = toPubkey
-	_ = lamports
 	return sig.String(), nil
 }
 

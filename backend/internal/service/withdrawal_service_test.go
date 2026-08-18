@@ -109,6 +109,9 @@ func newTestWithdrawalService(
 		func(_ context.Context) (bool, error) {
 			return emergencyPaused, nil
 		},
+		func(_ context.Context) (uint64, error) {
+			return uint64(wallet.Balance), nil
+		},
 	)
 
 	return svc, wallet
@@ -236,6 +239,9 @@ func TestWithdrawalExceedsOutflowCap(t *testing.T) {
 		func(_ context.Context) (bool, error) {
 			return false, nil
 		},
+		func(_ context.Context) (uint64, error) {
+			return uint64(wallet.Balance), nil
+		},
 	)
 	svc.SetOutflowChecker(func(_ context.Context, hotWalletBalance, newOutflow int64) (bool, error) {
 		outflowLimit := int64(float64(hotWalletBalance) * 0.30)
@@ -266,6 +272,9 @@ func TestWithdrawalWithinOutflowCap(t *testing.T) {
 		},
 		func(_ context.Context) (bool, error) {
 			return false, nil
+		},
+		func(_ context.Context) (uint64, error) {
+			return uint64(wallet.Balance), nil
 		},
 	)
 	svc.SetOutflowChecker(func(_ context.Context, hotWalletBalance, newOutflow int64) (bool, error) {

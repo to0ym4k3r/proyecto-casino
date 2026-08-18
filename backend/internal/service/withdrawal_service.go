@@ -19,6 +19,7 @@ type WithdrawalService struct {
 	getKYCTier      func(ctx context.Context, userID uuid.UUID) (KYCTier, error)
 	emergencyPaused func(ctx context.Context) (bool, error)
 	outflowChecker  func(ctx context.Context, hotWalletBalance, newOutflow int64) (bool, error)
+	getHotBalance   func(ctx context.Context) (uint64, error)
 }
 
 // WithdrawalRepository defines persistence operations for withdrawals.
@@ -36,12 +37,14 @@ func NewWithdrawalService(
 	withdrawalRepo WithdrawalRepository,
 	getKYCTier func(ctx context.Context, userID uuid.UUID) (KYCTier, error),
 	emergencyPaused func(ctx context.Context) (bool, error),
+	getHotBalance func(ctx context.Context) (uint64, error),
 ) *WithdrawalService {
 	return &WithdrawalService{
 		walletRepo:      walletRepo,
 		withdrawalRepo:  withdrawalRepo,
 		getKYCTier:      getKYCTier,
 		emergencyPaused: emergencyPaused,
+		getHotBalance:   getHotBalance,
 	}
 }
 
@@ -92,11 +95,12 @@ func (s *WithdrawalService) RequestWithdrawal(
 
 	// 5. Outflow cap check (if configured)
 	if s.outflowChecker != nil {
-		hotWalletBalance, err := s.walletRepo.GetByUserID(ctx, userID)
+		hotLamports, err := s.getHotBalance(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("get hot wallet balance: %w", err)
 		}
-		exceeded, err := s.outflowChecker(ctx, hotWalletBalance.Balance, amount)
+		hotWalletBalance := int64(hotLamports)
+		exceeded, err := s.outflowChecker(ctx, hotWalletBalance, amount)
 		if err != nil {
 			return nil, fmt.Errorf("check outflow cap: %w", err)
 		}

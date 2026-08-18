@@ -27,8 +27,7 @@ func NewPostgresRegistrationRepo(pool *pgxpool.Pool) *PostgresRegistrationRepo {
 }
 
 // CreateUserWithWallet persists the full registration atomically in one
-// transaction. Wallet.Balance is expressed in cents: the SQL cast divides by
-// 100 so the NUMERIC(15,2) column stays intact (cents in, dollars in DB).
+// transaction. Wallet.Balance is int64 cents written directly to BIGINT.
 // A unique-violation on users.email or users.username surfaces as
 // repository.ErrUserAlreadyExists (mapped from PostgreSQL error 23505).
 func (r *PostgresRegistrationRepo) CreateUserWithWallet(ctx context.Context, in domain.RegistrationInput) error {
@@ -53,7 +52,7 @@ func (r *PostgresRegistrationRepo) CreateUserWithWallet(ctx context.Context, in 
 
 		walletQuery := `
 			INSERT INTO wallets (id, user_id, balance, currency, version, created_at, updated_at)
-			VALUES ($1, $2, $3::numeric / 100, $4, $5, $6, $7)`
+			VALUES ($1, $2, $3, $4, $5, $6, $7)`
 		if _, err := t.Exec(ctx, walletQuery,
 			in.Wallet.ID,
 			in.Wallet.UserID,

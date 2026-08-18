@@ -86,6 +86,7 @@ func newTestWalletHandlerWithDeps(secret string) (*WalletHandler, *service.AuthS
 			return service.KYCL1, nil
 		},
 		func(_ context.Context) (bool, error) { return false, nil },
+		func(_ context.Context) (uint64, error) { return uint64(wallet.Balance), nil },
 	)
 	txHistorySvc := service.NewTxHistoryService(&fakeSolanaTxRepoForHandler{})
 	depositAddrRepo := &fakeDepositAddressRepo{
