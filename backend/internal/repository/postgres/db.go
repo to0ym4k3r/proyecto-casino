@@ -6,6 +6,7 @@ import (
 
 	"casino-backend/internal/config"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -30,4 +31,18 @@ func NewPool(ctx context.Context, cfg config.DatabaseConfig) (*pgxpool.Pool, err
 	}
 
 	return pool, nil
+}
+
+// WithTransaction runs fn inside a database transaction. If fn returns an
+// error the transaction is rolled back; otherwise it is committed.
+func WithTransaction(ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) error) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	if err := fn(tx); err != nil {
+		_ = tx.Rollback(ctx)
+		return err
+	}
+	return tx.Commit(ctx)
 }

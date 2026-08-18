@@ -78,6 +78,14 @@ type BetRepository interface {
 	Update(ctx context.Context, bet *domain.Bet) error
 }
 
+// GameSessionRepository defines data access operations for game sessions.
+type GameSessionRepository interface {
+	Create(ctx context.Context, session *domain.GameSession) error
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.GameSession, error)
+	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.GameSessionStatus) error
+	FindAbandoned(ctx context.Context, olderThan time.Duration) ([]domain.GameSession, error)
+}
+
 // KycRepository defines data access for KYC submissions and documents. A user
 // has at most one submission (kyc_submissions.user_id is UNIQUE, design D7);
 // documents may be uploaded before any submission exists, so CreateDocument
