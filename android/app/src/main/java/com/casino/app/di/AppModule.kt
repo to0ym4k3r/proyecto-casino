@@ -9,10 +9,12 @@ import com.casino.app.data.api.AuthApi
 import com.casino.app.data.api.AuthInterceptor
 import com.casino.app.data.api.KycApi
 import com.casino.app.data.api.UserApi
+import com.casino.app.data.api.WalletApi
 import com.casino.app.data.auth.AuthRepository
 import com.casino.app.data.kyc.KycRepository
 import com.casino.app.data.profile.ProfileRepository
 import com.casino.app.data.token.TokenStore
+import com.casino.app.data.wallet.WalletRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -131,4 +133,13 @@ object AppModule {
     @Singleton
     fun provideKycRepository(kycApi: KycApi): KycRepository =
         KycRepository(kycApi)
+
+    @Provides
+    @Singleton
+    fun provideWalletApi(retrofit: Retrofit): WalletApi = retrofit.create(WalletApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideWalletRepository(walletApi: WalletApi): WalletRepository =
+        WalletRepository(walletApi)
 }
