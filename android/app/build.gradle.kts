@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.kapt)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.hilt.android)
 }
 
@@ -20,6 +21,11 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        // Frozen backend contract (casino-core-users): the Android layer talks
+        // to the Go API under /api/v1. 10.0.2.2 is the emulator's host loopback.
+        // TODO(release): override with a real host before any production build.
+        buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8080/api/v1\"")
     }
 
     buildTypes {
@@ -44,6 +50,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     composeOptions {
@@ -84,11 +91,21 @@ dependencies {
     // Coroutines
     implementation(libs.kotlinx.coroutines.android)
 
+    // Network (design D8 — Retrofit + OkHttp + kotlinx.serialization)
+    implementation(libs.retrofit)
+    implementation(libs.converter.kotlinx.serialization)
+    implementation(libs.okhttp)
+    implementation(libs.kotlinx.serialization.json)
+
+    // DataStore (design D9 — Preferences DataStore for token storage)
+    implementation(libs.datastore.preferences)
+
     // Unit testing
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
     testImplementation(libs.turbine)
+    testImplementation(libs.mockwebserver)
 
     // Android instrumentation testing
     androidTestImplementation(platform(libs.compose.bom))

@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Network layer (design D8): the app talks to the Go backend over HTTP. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:name=".CasinoApp"
         android:allowBackup = "false"
@@ -17,6 +20,13 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Email verification deep link (task 5.8): casino://verify?token={token} -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="casino" android:host="verify" />
             </intent-filter>
         </activity>
     </application>

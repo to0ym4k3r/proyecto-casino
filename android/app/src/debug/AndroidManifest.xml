@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-only manifest overlay.
+
+  The debug build talks to the local Go backend over plain HTTP on the
+  emulator host loopback (http://10.0.2.2:8080/api/v1), so cleartext traffic
+  is allowed in debug builds only. Release builds keep the platform default
+  (cleartext blocked) until a TLS endpoint exists.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application android:usesCleartextTraffic="true" />
+
+</manifest>
