@@ -140,3 +140,61 @@ func TestBetRepoGetByUserIDPagination(t *testing.T) {
 		t.Errorf("page 3 length = %d, want 1", len(page3))
 	}
 }
+
+func TestBetRepoUpdate(t *testing.T) {
+	pool := testPool(t)
+	repo := NewPostgresBetRepo(pool)
+	ctx := context.Background()
+
+	userID := seedTestUser(t, pool)
+	gameID := seedTestGame(t, pool)
+
+	bet := &domain.Bet{
+		ID:        uuid.New(),
+		UserID:    userID,
+		GameID:    gameID,
+		Amount:    500,
+		Status:    domain.BetStatusPending,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := repo.Create(ctx, bet); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	now := time.Now().UTC()
+	bet.Status = domain.BetStatusWon
+	bet.Payout = 750
+	bet.Multiplier = 1.5
+	bet.ResolvedAt = &now
+	if err := repo.Update(ctx, bet); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	got, err := repo.GetByID(ctx, bet.ID)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Status != domain.BetStatusWon {
+		t.Errorf("Status = %s, want %s", got.Status, domain.BetStatusWon)
+	}
+	if got.Payout != 750 {
+		t.Errorf("Payout = %d, want 750", got.Payout)
+	}
+	if got.Multiplier != 1.5 {
+		t.Errorf("Multiplier = %f, want 1.5", got.Multiplier)
+	}
+}
+
+func TestBetRepoGetByUserIDEmpty(t *testing.T) {
+	pool := testPool(t)
+	repo := NewPostgresBetRepo(pool)
+	ctx := context.Background()
+
+	bets, err := repo.GetByUserID(ctx, uuid.New(), 10, 0)
+	if err != nil {
+		t.Fatalf("GetByUserID: %v", err)
+	}
+	if len(bets) != 0 {
+		t.Errorf("expected empty slice, got %d bets", len(bets))
+	}
+}

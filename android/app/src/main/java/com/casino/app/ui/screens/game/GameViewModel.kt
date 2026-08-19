@@ -12,6 +12,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import retrofit2.HttpException
 import javax.inject.Inject
 
 /**
@@ -47,6 +51,10 @@ class GameViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(GameUiState())
     val uiState: StateFlow<GameUiState> = _uiState.asStateFlow()
 
+    /** Synchronous guard to prevent duplicate bet placements within the same frame. */
+    @Volatile
+    private var betInProgress = false
+
     init {
         loadGame()
         startSession()
@@ -60,7 +68,7 @@ class GameViewModel @Inject constructor(
                 _uiState.update { it.copy(game = game, isLoading = false) }
             } catch (e: Exception) {
                 _uiState.update {
-                    it.copy(isLoading = false, error = e.localizedMessage ?: "Failed to load game")
+                    it.copy(isLoading = false, error = extractErrorMessage(e) ?: "Failed to load game")
                 }
             }
         }
@@ -88,7 +96,8 @@ class GameViewModel @Inject constructor(
      * Places a bet with the given amount (in integer cents).
      */
     fun placeBet(amount: Long) {
-        if (_uiState.value.isPlacingBet) return
+        if (betInProgress) return
+        betInProgress = true
 
         viewModelScope.launch {
             _uiState.update { it.copy(isPlacingBet = true, betError = null, lastBet = null) }
@@ -104,9 +113,11 @@ class GameViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(
                         isPlacingBet = false,
-                        betError = e.localizedMessage ?: "Failed to place bet",
+                        betError = extractErrorMessage(e) ?: "Failed to place bet",
                     )
                 }
+            } finally {
+                betInProgress = false
             }
         }
     }
@@ -134,5 +145,23 @@ class GameViewModel @Inject constructor(
      */
     fun clearBetResult() {
         _uiState.update { it.copy(lastBet = null, betError = null) }
+    }
+
+    /**
+     * Extracts the backend error message from an HttpException response body.
+     * Falls back to localizedMessage for non-HTTP exceptions.
+     */
+    private fun extractErrorMessage(e: Exception): String? {
+        if (e is HttpException) {
+            return try {
+                val body = e.response()?.errorBody()?.string()
+                body?.let {
+                    Json.parseToJsonElement(it).jsonObject["error"]?.jsonPrimitive?.content
+                }?.takeIf { it.isNotEmpty() }
+            } catch (_: Exception) {
+                null
+            } ?: e.localizedMessage
+        }
+        return e.localizedMessage
     }
 }

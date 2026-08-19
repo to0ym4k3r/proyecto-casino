@@ -49,6 +49,42 @@ La seguridad de nuestros usuarios y la integridad de los juegos son prioridades 
 - `.env` excluido de Git (`.gitignore`)
 - Docker secrets para produccion
 
+### 8. Crypto Wallet Security
+- **Hot Wallet Key Management**:
+  - MVP: `SOLANA_HOT_WALLET_KEY` env var (Base58 encoded private key)
+  - Production: Upgrade path to HSM (AWS KMS, GCP Cloud HSM, HashiCorp Vault Transit)
+  - Key NEVER in code, NEVER in git, NEVER in logs
+  - `.env` excluded via `.gitignore`
+- **HD Wallet Derivation**:
+  - BIP44 path: `m/44'/501'/{userId}'/0'`
+  - Deterministic address generation from master mnemonic
+  - No per-user private keys stored — re-derive on demand for sweep
+  - User index allocated atomically via DB sequence
+- **Deposit Detection**:
+  - Polling every 10s via Solana RPC
+  - SOL: `GetSignaturesForAddress` + `GetTransaction`
+  - USDC: `GetTokenAccountsByOwner` + `GetTokenAccountBalance`
+  - Wait for Finalized commitment (~30s) before crediting
+- **Withdrawal Security**:
+  - 3-tier rate limiting by KYC level (unverified: $500/tx, L1: $5K, L2: $25K)
+  - Daily withdrawal limits per tier
+  - Hot wallet outflow cap: max 30% per 24h rolling window
+  - Auto-approve below threshold, manual approval above
+- **Emergency Pause**:
+  - DB flag `emergency_paused` checked on every withdrawal
+  - Activate: POST /admin/emergency/pause (requires 2-of-3 admin MFA)
+  - Deactivate: 1 admin + ops lead
+  - 3-level cascade for production: app kill switch → key rotation → on-chain program pause
+- **Sweep Strategy**:
+  - PDA-based (Solana-native) — no per-user private keys
+  - Atomic batch sweeps (20-50 accounts per tx)
+  - Close empty ATAs after sweep to recover rent (~0.002 SOL each)
+- **Rent & Fees**:
+  - System account: ~0.00089 SOL
+  - Token account: ~0.00204 SOL
+  - Base tx fee: 0.000005 SOL per signature
+  - Priority fees: 10,000-50,000 micro-lamports/CU for fast confirmation
+
 ---
 
 ## Gambling Responsable
@@ -109,6 +145,12 @@ Para cada release, verificar:
 - [ ] Dependencias actualizadas (sin CVEs conocidos)
 - [ ] Tests de seguridad ejecutados
 - [ ] Gambling responsable: limites y autoexclusion funcionales
+- [ ] Solana hot wallet key stored in env var (not hardcoded)
+- [ ] HD wallet derivation uses correct BIP44 path
+- [ ] Withdrawal rate limits enforced per KYC tier
+- [ ] Hot wallet outflow cap (30%/24h) is active
+- [ ] Emergency pause mechanism tested
+- [ ] Empty ATAs closed after sweep (rent recovery)
 
 ---
 
