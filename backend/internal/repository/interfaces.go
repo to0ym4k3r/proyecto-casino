@@ -7,6 +7,7 @@ import (
 	"casino-backend/internal/domain"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // UserRepository defines data access operations for users.
@@ -79,7 +80,7 @@ type BetRepository interface {
 }
 
 // GameSessionRepository defines data access operations for game sessions.
-type 	GameSessionRepository interface {
+type GameSessionRepository interface {
 	Create(ctx context.Context, session *domain.GameSession) error
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.GameSession, error)
 	GetActiveSession(ctx context.Context, userID, gameID uuid.UUID) (*domain.GameSession, error)
@@ -102,4 +103,39 @@ type SolanaTxRepository interface {
 	Create(ctx context.Context, tx *domain.SolanaTx) error
 	ListByWalletID(ctx context.Context, walletID uuid.UUID, txType string, after, before *time.Time, limit, offset int) ([]domain.SolanaTx, int, error)
 	GetByTxHash(ctx context.Context, txHash string) (*domain.SolanaTx, error)
+}
+
+// BonusDefinitionRepository defines CRUD operations for bonus definitions.
+type BonusDefinitionRepository interface {
+	Create(ctx context.Context, def *domain.BonusDefinition) error
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.BonusDefinition, error)
+	GetByCode(ctx context.Context, code string) (*domain.BonusDefinition, error)
+	ListActive(ctx context.Context) ([]domain.BonusDefinition, error)
+	ListAll(ctx context.Context) ([]domain.BonusDefinition, error)
+	Update(ctx context.Context, def *domain.BonusDefinition) error
+}
+
+// BonusGrantRepository defines data access operations for user bonus grants.
+// Mutating and FOR UPDATE methods run inside the caller's pgx.Tx; row locks
+// release when that transaction commits or rolls back.
+type BonusGrantRepository interface {
+	Create(ctx context.Context, tx pgx.Tx, grant *domain.BonusGrant) error
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.BonusGrant, error)
+	GetActiveByUserAndDefinition(ctx context.Context, tx pgx.Tx, userID, defID uuid.UUID) (*domain.BonusGrant, error)
+	ListActiveByUser(ctx context.Context, userID uuid.UUID) ([]domain.BonusGrant, error)
+	ListByUser(ctx context.Context, userID uuid.UUID, status string) ([]domain.BonusGrant, error)
+	ListAll(ctx context.Context, status string, userID *uuid.UUID, limit, offset int) ([]domain.BonusGrant, int, error)
+	UpdateStatus(ctx context.Context, tx pgx.Tx, id uuid.UUID, status string) error
+	IncrementWagered(ctx context.Context, tx pgx.Tx, id uuid.UUID, amount int64) error
+	// ExpireStale marks grants past expires_at as expired within tx and
+	// returns them; it does neither wallet nor ledger work. The caller MUST
+	// zero wallets.bonus_balance and write the matching ledger entries in the
+	// SAME transaction before committing.
+	ExpireStale(ctx context.Context, tx pgx.Tx) ([]domain.BonusGrant, error)
+}
+
+// BonusLedgerRepository defines data access for the immutable bonus audit trail.
+type BonusLedgerRepository interface {
+	Create(ctx context.Context, tx pgx.Tx, entry *domain.BonusLedgerEntry) error
+	ListByGrant(ctx context.Context, grantID uuid.UUID) ([]domain.BonusLedgerEntry, error)
 }
