@@ -11,15 +11,16 @@ import (
 var ErrNotFound = errors.New("not found")
 
 // Wallet represents a user's financial balance.
-// Balance is stored in integer cents (e.g. 15000 = $150.00).
+// Balance and BonusBalance are stored in integer cents (e.g. 15000 = $150.00).
 type Wallet struct {
-	ID        uuid.UUID `json:"id"`
-	UserID    uuid.UUID `json:"user_id"`
-	Balance   int64     `json:"balance"`
-	Currency  string    `json:"currency"`
-	Version   int       `json:"version"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID           uuid.UUID `json:"id"`
+	UserID       uuid.UUID `json:"user_id"`
+	Balance      int64     `json:"balance"`
+	BonusBalance int64     `json:"bonus_balance"`
+	Currency     string    `json:"currency"`
+	Version      int       `json:"version"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // TransactionType represents the type of wallet transaction.
@@ -61,11 +62,11 @@ type WithdrawRequest struct {
 type WithdrawalStatus string
 
 const (
-	WithdrawalStatusPending        WithdrawalStatus = "pending"
+	WithdrawalStatusPending         WithdrawalStatus = "pending"
 	WithdrawalStatusPendingApproval WithdrawalStatus = "pending_approval"
-	WithdrawalStatusApproved       WithdrawalStatus = "approved"
-	WithdrawalStatusRejected       WithdrawalStatus = "rejected"
-	WithdrawalStatusCompleted      WithdrawalStatus = "completed"
+	WithdrawalStatusApproved        WithdrawalStatus = "approved"
+	WithdrawalStatusRejected        WithdrawalStatus = "rejected"
+	WithdrawalStatusCompleted       WithdrawalStatus = "completed"
 )
 
 // Withdrawal represents a crypto withdrawal request.
@@ -92,17 +93,17 @@ const (
 
 // SolanaTx represents an enriched on-chain Solana transaction record.
 type SolanaTx struct {
-	ID            uuid.UUID   `json:"id"`
-	WalletID      uuid.UUID   `json:"wallet_id"`
-	TxHash        string      `json:"tx_hash"`
+	ID            uuid.UUID    `json:"id"`
+	WalletID      uuid.UUID    `json:"wallet_id"`
+	TxHash        string       `json:"tx_hash"`
 	Type          SolanaTxType `json:"type"`
-	Amount        int64       `json:"amount"`
-	FromAddress   string      `json:"from_address"`
-	ToAddress     string      `json:"to_address"`
-	Confirmations int         `json:"confirmations"`
-	NetworkFee    int64       `json:"network_fee"`
-	UsdValue      int64       `json:"usd_value_at_time"`
-	CreatedAt     time.Time   `json:"created_at"`
+	Amount        int64        `json:"amount"`
+	FromAddress   string       `json:"from_address"`
+	ToAddress     string       `json:"to_address"`
+	Confirmations int          `json:"confirmations"`
+	NetworkFee    int64        `json:"network_fee"`
+	UsdValue      int64        `json:"usd_value_at_time"`
+	CreatedAt     time.Time    `json:"created_at"`
 }
 
 // TxHistoryFilter defines filters for transaction history queries.
