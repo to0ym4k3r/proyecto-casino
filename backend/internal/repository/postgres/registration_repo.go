@@ -51,12 +51,13 @@ func (r *PostgresRegistrationRepo) CreateUserWithWallet(ctx context.Context, in 
 		}
 
 		walletQuery := `
-			INSERT INTO wallets (id, user_id, balance, currency, version, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)`
+			INSERT INTO wallets (id, user_id, balance, bonus_balance, currency, version, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
 		if _, err := t.Exec(ctx, walletQuery,
 			in.Wallet.ID,
 			in.Wallet.UserID,
 			in.Wallet.Balance,
+			in.Wallet.BonusBalance,
 			in.Wallet.Currency,
 			in.Wallet.Version,
 			in.Wallet.CreatedAt,

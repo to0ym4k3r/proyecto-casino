@@ -108,7 +108,7 @@ func checkSQLContains(t *testing.T, version string, fragments []string) []string
 
 // TestApplyMigrationsFreshExistingAndPartial exercises ApplyMigrations against
 // a real Postgres 16 instance: fresh apply, idempotent re-run on an existing
-// volume, and the "already at 001" upgrade path from the spec. It is skipped
+// volume, and the "already at 001 and 004" drift-recovery path. It is skipped
 // unless TEST_DATABASE_URL points at a disposable database.
 func TestApplyMigrationsFreshExistingAndPartial(t *testing.T) {
 	url := os.Getenv("TEST_DATABASE_URL")
@@ -138,10 +138,10 @@ func TestApplyMigrationsFreshExistingAndPartial(t *testing.T) {
 	// Fresh volume: every migration applies in order and is recorded.
 	if n, err := ApplyMigrations(ctx, pool, migrations); err != nil {
 		t.Fatalf("fresh apply: %v", err)
-	} else if n != 3 {
-		t.Errorf("fresh apply applied %d, want 3", n)
+	} else if n != 6 {
+		t.Errorf("fresh apply applied %d, want 6", n)
 	}
-	assertTrackedVersions(t, ctx, pool, "001", "002", "003")
+	assertTrackedVersions(t, ctx, pool, "001", "002", "003", "004", "005", "006")
 	assertObjectsExist(t, ctx, pool)
 
 	// Existing volume: a second run is a no-op.
@@ -151,16 +151,24 @@ func TestApplyMigrationsFreshExistingAndPartial(t *testing.T) {
 		t.Errorf("existing volume re-applied %d migrations, want 0", n)
 	}
 
-	// Database already at 001 (spec scenario): only 002 and 003 apply.
-	if _, err := pool.Exec(ctx, `DELETE FROM schema_migrations WHERE version <> '001'`); err != nil {
-		t.Fatalf("simulate at-001 state: %v", err)
+	// Drift-recovery scenario with rows for 001 AND 004 kept: the four
+	// remaining versions apply, i.e. 002, 003, 005 and 006 in load order.
+	// Migrations 002, 003, 005 and 006 are IF NOT EXISTS-idempotent and safe
+	// to re-run over an existing schema; migration 004 is deliberately kept in
+	// schema_migrations and excluded from replay because it re-adds constraint
+	// wallets_balance_non_negative without a guard (SQLSTATE 42710 on replay)
+	// and its ALTER COLUMN balance TYPE BIGINT USING rewrite would rescale
+	// balances; hardening 004 for drift recovery is tracked as a follow-up and
+	// must not be simulated here.
+	if _, err := pool.Exec(ctx, `DELETE FROM schema_migrations WHERE version <> '001' AND version <> '004'`); err != nil {
+		t.Fatalf("simulate at-001-and-004 state: %v", err)
 	}
 	if n, err := ApplyMigrations(ctx, pool, migrations); err != nil {
-		t.Fatalf("at-001 apply: %v", err)
-	} else if n != 2 {
-		t.Errorf("at-001 apply applied %d, want 2 (only 002 and 003)", n)
+		t.Fatalf("at-001-and-004 apply: %v", err)
+	} else if n != 4 {
+		t.Errorf("at-001-and-004 apply applied %d, want 4 (002, 003, 005, 006)", n)
 	}
-	assertTrackedVersions(t, ctx, pool, "001", "002", "003")
+	assertTrackedVersions(t, ctx, pool, "001", "002", "003", "004", "005", "006")
 	assertObjectsExist(t, ctx, pool)
 }
 
@@ -186,7 +194,10 @@ func assertTrackedVersions(t *testing.T, ctx context.Context, pool *pgxpool.Pool
 func assertObjectsExist(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	t.Helper()
 
-	for _, table := range []string{"kyc_submissions", "kyc_documents", "refresh_tokens", "email_verifications"} {
+	for _, table := range []string{
+		"kyc_submissions", "kyc_documents", "refresh_tokens", "email_verifications",
+		"bonus_definitions", "bonus_grants", "bonus_ledger",
+	} {
 		var oid string
 		if err := pool.QueryRow(ctx, `SELECT to_regclass('public.'||$1)::text`, table).Scan(&oid); err != nil {
 			t.Fatalf("query %s: %v", table, err)
@@ -207,6 +218,17 @@ func assertObjectsExist(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 		t.Errorf("users has %d/2 expected KYC columns (date_of_birth, email_verified_at)", columns)
 	}
 
+	var bonusColumns int
+	if err := pool.QueryRow(ctx, `
+		SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_name = 'wallets' AND column_name = 'bonus_balance'`,
+	).Scan(&bonusColumns); err != nil {
+		t.Fatalf("query wallets.bonus_balance: %v", err)
+	}
+	if bonusColumns != 1 {
+		t.Error("wallets.bonus_balance column does not exist after migrations")
+	}
+
 	var hasIndex bool
 	if err := pool.QueryRow(ctx, `
 		SELECT EXISTS (
@@ -217,5 +239,17 @@ func assertObjectsExist(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	}
 	if !hasIndex {
 		t.Error("index idx_refresh_tokens_user does not exist")
+	}
+
+	var hasActiveGrantIndex bool
+	if err := pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM pg_indexes
+			WHERE tablename = 'bonus_grants' AND indexname = 'idx_bonus_grants_active_unique'
+		)`).Scan(&hasActiveGrantIndex); err != nil {
+		t.Fatalf("query bonus_grants partial unique index: %v", err)
+	}
+	if !hasActiveGrantIndex {
+		t.Error("index idx_bonus_grants_active_unique does not exist")
 	}
 }

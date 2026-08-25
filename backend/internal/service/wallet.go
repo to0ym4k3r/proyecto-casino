@@ -9,6 +9,7 @@ import (
 	"casino-backend/internal/repository"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // WalletService handles wallet and balance operations.
@@ -19,6 +20,95 @@ type WalletService struct {
 // NewWalletService creates a new wallet service.
 func NewWalletService(walletRepo repository.WalletRepository) *WalletService {
 	return &WalletService{walletRepo: walletRepo}
+}
+
+// ---------------------------------------------------------------------------
+// Transaction-scoped bonus-balance helpers
+//
+// These run inside a caller-owned pgx.Tx so multi-step money operations
+// (claim, forfeit, expiry, bet deduction) stay atomic: every helper below is
+// composed by BonusService inside ONE transaction. (GameService still uses
+// its own inline locking; unifying is a follow-up.)
+// ---------------------------------------------------------------------------
+
+// LockForUpdate selects the user's wallet row FOR UPDATE inside the caller's
+// transaction, serializing concurrent money operations on that wallet until
+// the transaction commits or rolls back. Only the columns needed for balance
+// decisions are read; the returned Wallet carries the queried UserID.
+func (s *WalletService) LockForUpdate(ctx context.Context, tx pgx.Tx, userID uuid.UUID) (*domain.Wallet, error) {
+	w := &domain.Wallet{}
+	err := tx.QueryRow(ctx,
+		`SELECT id, balance, bonus_balance, version FROM wallets WHERE user_id = $1 FOR UPDATE`,
+		userID,
+	).Scan(&w.ID, &w.Balance, &w.BonusBalance, &w.Version)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("lock wallet for user %s: %w", userID, domain.ErrNotFound)
+		}
+		return nil, fmt.Errorf("lock wallet for user %s: %w", userID, err)
+	}
+	w.UserID = userID
+	return w, nil
+}
+
+// CreditBonusBalance adds amount to wallets.bonus_balance inside the caller's
+// transaction. Negative amounts are rejected: credits flow through dedicated
+// call sites so an accidental sign flip cannot mint bonus money.
+func (s *WalletService) CreditBonusBalance(ctx context.Context, tx pgx.Tx, userID uuid.UUID, amount int64) error {
+	if amount < 0 {
+		return fmt.Errorf("credit bonus balance: negative amount %d", amount)
+	}
+	tag, err := tx.Exec(ctx,
+		`UPDATE wallets SET bonus_balance = bonus_balance + $2, updated_at = NOW()
+		 WHERE user_id = $1`,
+		userID, amount,
+	)
+	if err != nil {
+		return fmt.Errorf("credit bonus balance: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("credit bonus balance for user %s: %w", userID, domain.ErrNotFound)
+	}
+	return nil
+}
+
+// DebitBonusBalance subtracts amount from wallets.bonus_balance inside the
+// caller's transaction, floored at zero via GREATEST. The floor keeps the
+// shared column consistent when several grants coexist and one of them was
+// already partially spent; callers attribute per-grant amounts.
+func (s *WalletService) DebitBonusBalance(ctx context.Context, tx pgx.Tx, userID uuid.UUID, amount int64) error {
+	if amount < 0 {
+		return fmt.Errorf("debit bonus balance: negative amount %d", amount)
+	}
+	tag, err := tx.Exec(ctx,
+		`UPDATE wallets SET bonus_balance = GREATEST(bonus_balance - $2, 0), updated_at = NOW()
+		 WHERE user_id = $1`,
+		userID, amount,
+	)
+	if err != nil {
+		return fmt.Errorf("debit bonus balance: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("debit bonus balance for user %s: %w", userID, domain.ErrNotFound)
+	}
+	return nil
+}
+
+// ZeroBonusBalance sets wallets.bonus_balance to 0 inside the caller's
+// transaction. Intended for forced forfeit paths (e.g. whole-pool surrender
+// on withdrawal) once such callers land.
+func (s *WalletService) ZeroBonusBalance(ctx context.Context, tx pgx.Tx, userID uuid.UUID) error {
+	tag, err := tx.Exec(ctx,
+		`UPDATE wallets SET bonus_balance = 0, updated_at = NOW() WHERE user_id = $1`,
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("zero bonus balance: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("zero bonus balance for user %s: %w", userID, domain.ErrNotFound)
+	}
+	return nil
 }
 
 // GetBalance returns the wallet for the given user.

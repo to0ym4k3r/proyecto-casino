@@ -24,13 +24,14 @@ func NewPostgresWalletRepo(pool *pgxpool.Pool) *PostgresWalletRepo {
 // Create inserts a new wallet into the database.
 func (r *PostgresWalletRepo) Create(ctx context.Context, wallet *domain.Wallet) error {
 	query := `
-		INSERT INTO wallets (id, user_id, balance, currency, version, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`
+		INSERT INTO wallets (id, user_id, balance, bonus_balance, currency, version, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
 
 	_, err := r.pool.Exec(ctx, query,
 		wallet.ID,
 		wallet.UserID,
 		wallet.Balance,
+		wallet.BonusBalance,
 		wallet.Currency,
 		wallet.Version,
 		wallet.CreatedAt,
@@ -45,7 +46,7 @@ func (r *PostgresWalletRepo) Create(ctx context.Context, wallet *domain.Wallet) 
 // GetByID retrieves a wallet by its UUID.
 func (r *PostgresWalletRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain.Wallet, error) {
 	query := `
-		SELECT id, user_id, balance, currency, version, created_at, updated_at
+		SELECT id, user_id, balance, bonus_balance, currency, version, created_at, updated_at
 		FROM wallets
 		WHERE id = $1`
 
@@ -54,6 +55,7 @@ func (r *PostgresWalletRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain
 		&wallet.ID,
 		&wallet.UserID,
 		&wallet.Balance,
+		&wallet.BonusBalance,
 		&wallet.Currency,
 		&wallet.Version,
 		&wallet.CreatedAt,
@@ -68,7 +70,7 @@ func (r *PostgresWalletRepo) GetByID(ctx context.Context, id uuid.UUID) (*domain
 // GetByUserID retrieves the wallet belonging to a specific user.
 func (r *PostgresWalletRepo) GetByUserID(ctx context.Context, userID uuid.UUID) (*domain.Wallet, error) {
 	query := `
-		SELECT id, user_id, balance, currency, version, created_at, updated_at
+		SELECT id, user_id, balance, bonus_balance, currency, version, created_at, updated_at
 		FROM wallets
 		WHERE user_id = $1`
 
@@ -77,6 +79,7 @@ func (r *PostgresWalletRepo) GetByUserID(ctx context.Context, userID uuid.UUID) 
 		&wallet.ID,
 		&wallet.UserID,
 		&wallet.Balance,
+		&wallet.BonusBalance,
 		&wallet.Currency,
 		&wallet.Version,
 		&wallet.CreatedAt,
