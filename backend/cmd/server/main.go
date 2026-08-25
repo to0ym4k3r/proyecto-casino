@@ -90,7 +90,7 @@ func main() {
 	kycHandler := handler.NewKycHandler(kycService, kycStore)
 	adminHandler := handler.NewAdminHandler(gameService)
 
-	router := handler.NewRouter(authHandler, gameHandler, walletHandler, userHandler, kycHandler, adminHandler, authService, log, cfg.CORS.AllowedOrigins, cfg.RateLimit.TrustedHeader)
+	router := handler.NewRouter(authHandler, gameHandler, walletHandler, userHandler, kycHandler, adminHandler, authService, log, cfg.CORS.AllowedOrigins, cfg.RateLimit.TrustedHeader, nil, nil)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Server.Port,

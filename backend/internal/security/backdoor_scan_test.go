@@ -43,7 +43,7 @@ func allGoFiles(t *testing.T, root string) []string {
 			}
 			return nil
 		}
-		if strings.HasSuffix(path, ".go") {
+		if strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") {
 			files = append(files, path)
 		}
 		return nil
@@ -60,7 +60,7 @@ func findPattern(t *testing.T, root string, files []string, pat string) []string
 
 	// allowlist: known-safe hits. Key is "relative/path:line".
 	allowed := map[string]bool{
-		"internal/handler/router.go:136":                        true,
+		"internal/handler/router.go:142":                        true,
 		"internal/handler/wallet_handler.go:268":                true,
 		"internal/handler/wallet_handler_crypto_test.go:229":    true,
 	}

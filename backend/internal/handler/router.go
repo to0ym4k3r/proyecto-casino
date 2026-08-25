@@ -12,16 +12,18 @@ import (
 
 // Router holds all dependencies for HTTP route configuration.
 type Router struct {
-	authHandler   *AuthHandler
-	gameHandler   *GameHandler
-	walletHandler *WalletHandler
-	userHandler   *UserHandler
-	kycHandler    *KycHandler
-	adminHandler  *AdminHandler
-	authService   *service.AuthService
-	logger        zerolog.Logger
-	corsOrigins   string
-	trustedHeader string
+	authHandler        *AuthHandler
+	gameHandler        *GameHandler
+	walletHandler      *WalletHandler
+	userHandler        *UserHandler
+	kycHandler         *KycHandler
+	adminHandler       *AdminHandler
+	bonusHandler       *BonusHandler
+	adminBonusHandler  *AdminBonusHandler
+	authService        *service.AuthService
+	logger             zerolog.Logger
+	corsOrigins        string
+	trustedHeader      string
 }
 
 // NewRouter creates a new Router with all handlers and middleware.
@@ -36,18 +38,22 @@ func NewRouter(
 	log zerolog.Logger,
 	corsOrigins string,
 	trustedHeader string,
+	bonusHandler *BonusHandler,
+	adminBonusHandler *AdminBonusHandler,
 ) *Router {
 	return &Router{
-		authHandler:   authHandler,
-		gameHandler:   gameHandler,
-		walletHandler: walletHandler,
-		userHandler:   userHandler,
-		kycHandler:    kycHandler,
-		adminHandler:  adminHandler,
-		authService:   authService,
-		logger:        log,
-		corsOrigins:   corsOrigins,
-		trustedHeader: trustedHeader,
+		authHandler:       authHandler,
+		gameHandler:       gameHandler,
+		walletHandler:     walletHandler,
+		userHandler:       userHandler,
+		kycHandler:        kycHandler,
+		adminHandler:      adminHandler,
+		bonusHandler:      bonusHandler,
+		adminBonusHandler: adminBonusHandler,
+		authService:       authService,
+		logger:            log,
+		corsOrigins:       corsOrigins,
+		trustedHeader:     trustedHeader,
 	}
 }
 
@@ -139,7 +145,29 @@ func (rt *Router) Setup() *chi.Mux {
 			r.Post("/games", rt.adminHandler.CreateGameHandler)
 			r.Put("/games/{gameID}", rt.adminHandler.UpdateGameHandler)
 			r.Delete("/games/{gameID}", rt.adminHandler.DeleteGameHandler)
+
+			// Bonus admin endpoints (nil-safe)
+			if rt.adminBonusHandler != nil {
+				ah := rt.adminBonusHandler
+				r.Get("/bonuses", ah.ListDefinitions)
+				r.Post("/bonuses", ah.CreateDefinition)
+				r.Put("/bonuses/{id}", ah.UpdateDefinition)
+				r.Get("/bonuses/grants", ah.ListGrants)
+				r.Post("/bonuses/{id}/expire", ah.ExpireGrant)
+			}
 		})
+
+		// Bonus user endpoints (nil-safe)
+		if rt.bonusHandler != nil {
+			bh := rt.bonusHandler
+			r.Route("/bonuses", func(r chi.Router) {
+				r.Use(middleware.Auth(authSvc))
+				r.Get("/available", bh.ListAvailable)
+				r.Post("/claim", bh.Claim)
+				r.Get("/active", bh.ListActive)
+				r.Post("/forfeit/{grantID}", bh.Forfeit)
+			})
+		}
 
 		r.Route("/users", func(r chi.Router) {
 			r.Use(middleware.Auth(authSvc))

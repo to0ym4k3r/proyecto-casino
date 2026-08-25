@@ -546,7 +546,7 @@ func newTestHandlers(t *testing.T, secret string) *testHandlers {
 func newTestRouter(t *testing.T, secret string) http.Handler {
 	t.Helper()
 	th := newTestHandlers(t, secret)
-	return handler.NewRouter(th.auth, th.game, th.wallet, th.user, th.kyc, nil, th.authSvc, zerolog.Nop(), "http://localhost:3000", "").Setup()
+	return handler.NewRouter(th.auth, th.game, th.wallet, th.user, th.kyc, nil, th.authSvc, zerolog.Nop(), "http://localhost:3000", "", nil, nil).Setup()
 }
 
 // ---------------------------------------------------------------------------

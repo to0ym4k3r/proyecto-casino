@@ -292,3 +292,70 @@ func (s *BonusService) writeLedger(ctx context.Context, tx pgx.Tx, grantID uuid.
 	}
 	return nil
 }
+
+// ---------------------------------------------------------------------------
+// Admin operations
+// ---------------------------------------------------------------------------
+
+// ListAllBonuses returns every bonus definition (active and inactive) for
+// admin management.
+func (s *BonusService) ListAllBonuses(ctx context.Context) ([]domain.BonusDefinition, error) {
+	defs, err := s.defs.ListAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list all bonuses: %w", err)
+	}
+	return defs, nil
+}
+
+// CreateOrUpdateBonus upserts a bonus definition. If def.ID is uuid.Nil the
+// repo creates a new row; otherwise it updates the existing one.
+func (s *BonusService) CreateOrUpdateBonus(ctx context.Context, def *domain.BonusDefinition) error {
+	if def.ID == uuid.Nil {
+		if err := s.defs.Create(ctx, def); err != nil {
+			return fmt.Errorf("create bonus definition: %w", err)
+		}
+		return nil
+	}
+	if err := s.defs.Update(ctx, def); err != nil {
+		return fmt.Errorf("update bonus definition: %w", err)
+	}
+	return nil
+}
+
+// AdminListGrants returns grants filtered by status and optional userID, with
+// pagination, for the admin grant list endpoint.
+func (s *BonusService) AdminListGrants(ctx context.Context, status string, userID *uuid.UUID, limit, offset int) ([]domain.BonusGrant, int, error) {
+	grants, total, err := s.grants.ListAll(ctx, status, userID, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("admin list grants: %w", err)
+	}
+	return grants, total, nil
+}
+
+// AdminExpireGrant manually expires a single grant: flips status to expired,
+// debits the bonus_balance and writes a ledger entry — all atomically.
+func (s *BonusService) AdminExpireGrant(ctx context.Context, grantID uuid.UUID) error {
+	grant, err := s.grants.GetByID(ctx, grantID)
+	if err != nil {
+		if errors.Is(err, repository.ErrBonusGrantNotFound) {
+			return fmt.Errorf("admin expire grant: %w", domain.ErrGrantNotFound)
+		}
+		return fmt.Errorf("admin expire grant: %w", err)
+	}
+	if grant.Status != domain.BonusStatusActive {
+		return fmt.Errorf("admin expire grant: %w", domain.ErrBonusNotActive)
+	}
+
+	return s.txFunc(ctx, func(tx pgx.Tx) error {
+		if _, err := s.wallets.LockForUpdate(ctx, tx, grant.UserID); err != nil {
+			return err
+		}
+		if err := s.wallets.DebitBonusBalance(ctx, tx, grant.UserID, grant.BonusAmountCents); err != nil {
+			return err
+		}
+		if err := s.grants.UpdateStatus(ctx, tx, grant.ID, domain.BonusStatusExpired); err != nil {
+			return fmt.Errorf("mark grant expired: %w", err)
+		}
+		return s.writeLedger(ctx, tx, grant.ID, domain.BonusLedgerExpired, grant.BonusAmountCents)
+	})
+}
