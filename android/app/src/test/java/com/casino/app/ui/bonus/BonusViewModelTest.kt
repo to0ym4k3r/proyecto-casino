@@ -315,4 +315,12 @@ class BonusViewModelTest {
         assertEquals("$500.00", formatCentsAsDollars(50000L))
         assertEquals("$123.45", formatCentsAsDollars(12345L))
     }
+
+    @Test
+    fun `formatCentsAsDollars handles negative values`() {
+        assertEquals("$-0.01", formatCentsAsDollars(-1L))
+        assertEquals("$-0.50", formatCentsAsDollars(-50L))
+        assertEquals("$-1.00", formatCentsAsDollars(-100L))
+        assertEquals("$-100.00", formatCentsAsDollars(-10000L))
+    }
 }
