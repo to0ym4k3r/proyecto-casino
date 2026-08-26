@@ -245,6 +245,45 @@ func (s *BonusService) ProcessBetBonus(ctx context.Context, tx pgx.Tx, grantID u
 	return s.writeLedger(ctx, tx, grantID, domain.BonusLedgerWagered, bonusPortion)
 }
 
+// findActiveGrantForBet returns the user's active grant with the highest
+// remaining wagering need, or nil if none exists. Runs inside the caller's tx.
+func (s *BonusService) findActiveGrantForBet(ctx context.Context, tx pgx.Tx, userID uuid.UUID) (*domain.BonusGrant, error) {
+	grants, err := s.grants.ListActiveByUserTx(ctx, tx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if len(grants) == 0 {
+		return nil, nil
+	}
+	// Pick the grant with the most remaining wagering (prioritize completing one)
+	var best *domain.BonusGrant
+	for i := range grants {
+		remaining := grants[i].WageringRequiredCents - grants[i].TotalWageredCents
+		if remaining <= 0 {
+			continue // already completed
+		}
+		if best == nil || remaining > (best.WageringRequiredCents-best.TotalWageredCents) {
+			best = &grants[i]
+		}
+	}
+	return best, nil
+}
+
+// convertCompletedBonus moves the grant's bonus amount from bonus_balance to
+// real balance and flips the grant status to 'wagered'. Runs inside the caller's tx.
+func (s *BonusService) convertCompletedBonus(ctx context.Context, tx pgx.Tx, userID uuid.UUID, grant *domain.BonusGrant) error {
+	// Convert bonus balance to real balance
+	if err := s.wallets.ConvertBonusToReal(ctx, tx, userID, grant.BonusAmountCents); err != nil {
+		return err
+	}
+	// Mark grant as wagered (completed)
+	if err := s.grants.UpdateStatus(ctx, tx, grant.ID, domain.BonusStatusWagered); err != nil {
+		return fmt.Errorf("mark grant wagered: %w", err)
+	}
+	// Write completion ledger entry
+	return s.writeLedger(ctx, tx, grant.ID, domain.BonusLedgerCompleted, grant.BonusAmountCents)
+}
+
 // ---------------------------------------------------------------------------
 // Background expiry
 // ---------------------------------------------------------------------------

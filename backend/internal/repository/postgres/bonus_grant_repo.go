@@ -148,6 +148,36 @@ func (r *PostgresBonusGrantRepo) ListActiveByUser(ctx context.Context, userID uu
 	return r.listGrants(ctx, query, userID)
 }
 
+// ListActiveByUserTx returns all active grants for a user within the caller's
+// transaction, ordered by creation time. Used by game integration to query
+// grants inside the same transaction that places the bet.
+func (r *PostgresBonusGrantRepo) ListActiveByUserTx(ctx context.Context, tx pgx.Tx, userID uuid.UUID) ([]domain.BonusGrant, error) {
+	query := `
+		SELECT id, user_id, bonus_definition_id, bonus_amount_cents,
+			wagering_required_cents, total_wagered_cents, status, granted_by, admin_id,
+			expires_at, created_at, updated_at
+		FROM bonus_grants
+		WHERE user_id = $1 AND status = 'active'
+		ORDER BY created_at DESC`
+
+	rows, err := tx.Query(ctx, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list active grants tx: %w", err)
+	}
+	defer rows.Close()
+
+	var grants []domain.BonusGrant
+	for rows.Next() {
+		g, err := scanGrant(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan active grant tx: %w", err)
+		}
+		grants = append(grants, g)
+	}
+
+	return grants, rows.Err()
+}
+
 // ListByUser returns grants for a user filtered by status. Empty status returns all.
 func (r *PostgresBonusGrantRepo) ListByUser(ctx context.Context, userID uuid.UUID, status string) ([]domain.BonusGrant, error) {
 	var query string

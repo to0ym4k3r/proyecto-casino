@@ -62,6 +62,9 @@ func main() {
 	depositAddrRepo := postgres.NewPostgresDepositAddressRepo(pool)
 	betRepo := postgres.NewPostgresBetRepo(pool)
 	sessionRepo := postgres.NewPostgresGameSessionRepo(pool)
+	bonusDefRepo := postgres.NewPostgresBonusDefinitionRepo(pool)
+	bonusGrantRepo := postgres.NewPostgresBonusGrantRepo(pool)
+	bonusLedgerRepo := postgres.NewPostgresBonusLedgerRepo(pool)
 
 	// Email transport seam (design D3 / spec "SMTP seam"): console in dev,
 	// SMTP in production, selected by MAILER_DRIVER.
@@ -78,7 +81,15 @@ func main() {
 	txFunc := func(ctx context.Context, fn func(pgx.Tx) error) error {
 		return postgres.WithTransaction(ctx, pool, fn)
 	}
-	gameService := service.NewGameServiceWithPersistence(gameRepo, walletRepo, betRepo, sessionRepo, txFunc)
+	bonusService := service.NewBonusService(
+		bonusDefRepo,
+		bonusGrantRepo,
+		bonusLedgerRepo,
+		walletService,
+		service.DefaultBonusHandlers(),
+		txFunc,
+	)
+	gameService := service.NewGameServiceWithBonus(gameRepo, walletRepo, betRepo, sessionRepo, bonusService, txFunc)
 	userService := service.NewUserService(userRepo)
 	kycService := service.NewKycService(kycRepo)
 

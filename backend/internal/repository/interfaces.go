@@ -123,6 +123,7 @@ type BonusGrantRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.BonusGrant, error)
 	GetActiveByUserAndDefinition(ctx context.Context, tx pgx.Tx, userID, defID uuid.UUID) (*domain.BonusGrant, error)
 	ListActiveByUser(ctx context.Context, userID uuid.UUID) ([]domain.BonusGrant, error)
+	ListActiveByUserTx(ctx context.Context, tx pgx.Tx, userID uuid.UUID) ([]domain.BonusGrant, error)
 	ListByUser(ctx context.Context, userID uuid.UUID, status string) ([]domain.BonusGrant, error)
 	ListAll(ctx context.Context, status string, userID *uuid.UUID, limit, offset int) ([]domain.BonusGrant, int, error)
 	UpdateStatus(ctx context.Context, tx pgx.Tx, id uuid.UUID, status string) error

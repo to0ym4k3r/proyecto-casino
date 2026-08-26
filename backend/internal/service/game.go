@@ -19,6 +19,7 @@ type GameService struct {
 	walletRepo  repository.WalletRepository
 	betRepo     repository.BetRepository
 	sessionRepo repository.GameSessionRepository
+	bonusSvc    *BonusService
 	txFunc      func(ctx context.Context, fn func(pgx.Tx) error) error
 }
 
@@ -43,6 +44,25 @@ func NewGameServiceWithPersistence(
 		walletRepo:  walletRepo,
 		betRepo:     betRepo,
 		sessionRepo: sessionRepo,
+		txFunc:      txFunc,
+	}
+}
+
+// NewGameServiceWithBonus creates a game service with persistence and bonus integration.
+func NewGameServiceWithBonus(
+	gameRepo repository.GameRepository,
+	walletRepo repository.WalletRepository,
+	betRepo repository.BetRepository,
+	sessionRepo repository.GameSessionRepository,
+	bonusSvc *BonusService,
+	txFunc TxFunc,
+) *GameService {
+	return &GameService{
+		gameRepo:    gameRepo,
+		walletRepo:  walletRepo,
+		betRepo:     betRepo,
+		sessionRepo: sessionRepo,
+		bonusSvc:    bonusSvc,
 		txFunc:      txFunc,
 	}
 }
@@ -193,6 +213,29 @@ func (s *GameService) PlaceBet(ctx context.Context, userID, gameID, sessionID uu
 		)
 		if err != nil {
 			return fmt.Errorf("record bet transaction: %w", err)
+		}
+
+		// 6. Process bonus wagering if bonus service is available
+		if s.bonusSvc != nil {
+			grant, err := s.bonusSvc.findActiveGrantForBet(ctx, tx, userID)
+			if err == nil && grant != nil {
+				remaining := grant.WageringRequiredCents - grant.TotalWageredCents
+				bonusPortion := amount
+				if bonusPortion > remaining {
+					bonusPortion = remaining
+				}
+				if bonusPortion > 0 {
+					if err := s.bonusSvc.ProcessBetBonus(ctx, tx, grant.ID, bonusPortion); err != nil {
+						return fmt.Errorf("process bet bonus: %w", err)
+					}
+					// 7. If wagering completed, convert bonus to real balance
+					if grant.TotalWageredCents+bonusPortion >= grant.WageringRequiredCents {
+						if err := s.bonusSvc.convertCompletedBonus(ctx, tx, userID, grant); err != nil {
+							return fmt.Errorf("convert completed bonus: %w", err)
+						}
+					}
+				}
+			}
 		}
 
 		return nil

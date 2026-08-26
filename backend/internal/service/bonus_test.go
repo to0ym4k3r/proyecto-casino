@@ -116,6 +116,10 @@ func (f *fakeGrantRepo) ListActiveByUser(_ context.Context, _ uuid.UUID) ([]doma
 	return f.activeByUser, nil
 }
 
+func (f *fakeGrantRepo) ListActiveByUserTx(_ context.Context, _ pgx.Tx, _ uuid.UUID) ([]domain.BonusGrant, error) {
+	return f.activeByUser, nil
+}
+
 func (f *fakeGrantRepo) ListByUser(_ context.Context, _ uuid.UUID, _ string) ([]domain.BonusGrant, error) {
 	return nil, unexpectedCall
 }

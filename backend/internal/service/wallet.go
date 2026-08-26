@@ -111,6 +111,32 @@ func (s *WalletService) ZeroBonusBalance(ctx context.Context, tx pgx.Tx, userID 
 	return nil
 }
 
+// ConvertBonusToReal atomically moves amount from bonus_balance to balance
+// inside the caller's transaction. Used when wagering requirements are met.
+// The debit is zero-floored via GREATEST so partial spends across grants stay
+// consistent.
+func (s *WalletService) ConvertBonusToReal(ctx context.Context, tx pgx.Tx, userID uuid.UUID, amount int64) error {
+	if amount <= 0 {
+		return nil // nothing to convert
+	}
+	// Debit bonus_balance (zero-floored)
+	tag, err := tx.Exec(ctx,
+		`UPDATE wallets 
+		 SET bonus_balance = GREATEST(bonus_balance - $2, 0),
+		     balance = balance + $2,
+		     updated_at = NOW()
+		 WHERE user_id = $1`,
+		userID, amount,
+	)
+	if err != nil {
+		return fmt.Errorf("convert bonus to real: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("convert bonus to real for user %s: %w", userID, domain.ErrNotFound)
+	}
+	return nil
+}
+
 // GetBalance returns the wallet for the given user.
 //
 // Delegates to the repository. Returns an error (typically wrapping a not-found)
