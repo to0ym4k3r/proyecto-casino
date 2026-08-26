@@ -104,8 +104,10 @@ func main() {
 	kycStore := storage.NewLocalStore(cfg.Storage.KycDir)
 	kycHandler := handler.NewKycHandler(kycService, kycStore)
 	adminHandler := handler.NewAdminHandler(gameService)
+	bonusHandler := handler.NewBonusHandler(bonusService)
+	adminBonusHandler := handler.NewAdminBonusHandler(bonusService)
 
-	router := handler.NewRouter(authHandler, gameHandler, walletHandler, userHandler, kycHandler, adminHandler, authService, log, cfg.CORS.AllowedOrigins, cfg.RateLimit.TrustedHeader, nil, nil)
+	router := handler.NewRouter(authHandler, gameHandler, walletHandler, userHandler, kycHandler, adminHandler, authService, log, cfg.CORS.AllowedOrigins, cfg.RateLimit.TrustedHeader, bonusHandler, adminBonusHandler)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Server.Port,
