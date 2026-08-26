@@ -93,6 +93,10 @@ func main() {
 	userService := service.NewUserService(userRepo)
 	kycService := service.NewKycService(kycRepo)
 
+	expiryScheduler := service.NewBonusExpiryScheduler(bonusService, time.Hour, log)
+	expiryScheduler.Start(context.Background())
+	defer expiryScheduler.Stop()
+
 	authHandler := handler.NewAuthHandler(authService)
 	gameHandler := handler.NewGameHandler(gameService)
 	walletHandler := handler.NewWalletHandler(walletService, nil, nil, depositAddrRepo)
