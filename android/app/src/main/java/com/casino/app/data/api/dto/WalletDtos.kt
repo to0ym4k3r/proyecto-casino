@@ -15,6 +15,7 @@ data class WalletDto(
     val id: String,
     @SerialName("user_id") val userId: String,
     val balance: Long,
+    @SerialName("bonus_balance") val bonusBalance: Long = 0L,
     val currency: String,
     val version: Int,
     @SerialName("created_at") val createdAt: String,

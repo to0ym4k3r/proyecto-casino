@@ -51,6 +51,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.casino.app.data.api.dto.SolanaTxDto
 import com.casino.app.ui.theme.AccentGreen
+import com.casino.app.ui.theme.AccentGold
 import com.casino.app.ui.theme.AccentRed
 import com.casino.app.ui.theme.BgDeep
 import com.casino.app.ui.theme.BgElevated
@@ -176,7 +177,7 @@ private fun BalanceTab(uiState: WalletUiState) {
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = "Total Balance",
+                        text = "Balance",
                         color = TextSecondary,
                         fontSize = 14.sp,
                     )
@@ -193,6 +194,23 @@ private fun BalanceTab(uiState: WalletUiState) {
                         color = TextMuted,
                         fontSize = 13.sp,
                     )
+
+                    // Bonus balance
+                    if (uiState.bonusBalanceCents > 0) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Bonus Balance",
+                            color = AccentGold,
+                            fontSize = 14.sp,
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = uiState.bonusBalanceFormatted,
+                            color = AccentGold,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
                 }
             }
         }

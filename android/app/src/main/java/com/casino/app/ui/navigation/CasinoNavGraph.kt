@@ -53,6 +53,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.casino.app.ui.bonus.ActiveBonusesScreen
+import com.casino.app.ui.bonus.BonusListScreen
 import com.casino.app.ui.screens.auth.AuthSplashScreen
 import com.casino.app.ui.screens.game.GameScreen
 import com.casino.app.ui.screens.lobby.LobbyScreen
@@ -222,6 +224,12 @@ private fun MainNavGraph() {
                 KycScreen(
                     onBack = { navController.popBackStack() },
                 )
+            }
+            composable("bonuses") {
+                BonusListScreen()
+            }
+            composable("bonuses/active") {
+                ActiveBonusesScreen()
             }
         }
     }

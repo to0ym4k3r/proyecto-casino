@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.casino.app.data.api.dto.SolanaTxDto
 import com.casino.app.data.wallet.WalletRepository
+import com.casino.app.ui.util.formatCentsAsDollars
 import com.casino.app.ui.screens.auth.AuthErrorMessages
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -25,6 +26,8 @@ data class WalletUiState(
     val isLoadingBalance: Boolean = true,
     val balanceCents: Long = 0L,
     val balanceFormatted: String = "$0.00",
+    val bonusBalanceCents: Long = 0L,
+    val bonusBalanceFormatted: String = "$0.00",
     val currency: String = "USD",
     val balanceError: String? = null,
 
@@ -180,6 +183,8 @@ class WalletViewModel @Inject constructor(
                         isLoadingBalance = false,
                         balanceCents = wallet.balance,
                         balanceFormatted = formatCentsAsDollars(wallet.balance),
+                        bonusBalanceCents = wallet.bonusBalance,
+                        bonusBalanceFormatted = formatCentsAsDollars(wallet.bonusBalance),
                         currency = wallet.currency,
                     )
                 }
@@ -232,11 +237,5 @@ class WalletViewModel @Inject constructor(
             }
         }
 
-        /** Format integer cents as "$X.XX". */
-        fun formatCentsAsDollars(cents: Long): String {
-            val dollars = cents / 100
-            val remainder = cents % 100
-            return "$${dollars}.${remainder.toString().padStart(2, '0')}"
-        }
     }
 }

@@ -10,8 +10,10 @@ import com.casino.app.data.api.AuthInterceptor
 import com.casino.app.data.api.GameApi
 import com.casino.app.data.api.KycApi
 import com.casino.app.data.api.UserApi
+import com.casino.app.data.api.BonusApi
 import com.casino.app.data.api.WalletApi
 import com.casino.app.data.auth.AuthRepository
+import com.casino.app.data.bonus.BonusRepository
 import com.casino.app.data.game.GameRepository
 import com.casino.app.data.kyc.KycRepository
 import com.casino.app.data.profile.ProfileRepository
@@ -153,4 +155,13 @@ object AppModule {
     @Singleton
     fun provideGameRepository(gameApi: GameApi): GameRepository =
         GameRepository(gameApi)
+
+    @Provides
+    @Singleton
+    fun provideBonusApi(retrofit: Retrofit): BonusApi = retrofit.create(BonusApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideBonusRepository(bonusApi: BonusApi): BonusRepository =
+        BonusRepository(bonusApi)
 }
