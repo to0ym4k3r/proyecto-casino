@@ -146,7 +146,13 @@ func ResolveBet(amount int64, rtp int) (int64, float64, bool) {
 // record atomically in a single database transaction. Uses SELECT ... FOR UPDATE
 // on the wallet row with optimistic locking to prevent race conditions.
 //
-// Returns insufficient_balance if the wallet has fewer funds than the bet amount.
+// Deduction follows the real-first/bonus-second split model (design §5): real
+// balance is consumed up to its full amount, and any remainder is taken from
+// bonus_balance (floored at zero). The whole split is ONE two-column UPDATE,
+// so it still carries a single version bump and a single conflict check.
+//
+// Returns insufficient_balance if balance + bonus_balance has fewer funds than
+// the bet amount; the reported "have" value is the TOTAL available money.
 func (s *GameService) PlaceBet(ctx context.Context, userID, gameID, sessionID uuid.UUID, amount int64) (*domain.Bet, error) {
 	if s.txFunc == nil {
 		return nil, fmt.Errorf("persistence not configured")
@@ -155,28 +161,35 @@ func (s *GameService) PlaceBet(ctx context.Context, userID, gameID, sessionID uu
 	var bet *domain.Bet
 
 	err := s.txFunc(ctx, func(tx pgx.Tx) error {
-		// 1. Lock the wallet row for update
+		// 1. Lock the wallet row for update (needs bonus_balance for the split)
 		var walletID uuid.UUID
-		var balance int64
+		var balance, bonusBalance int64
 		var version int
 		err := tx.QueryRow(ctx,
-			`SELECT id, balance, version FROM wallets WHERE user_id = $1 FOR UPDATE`,
+			`SELECT id, balance, bonus_balance, version FROM wallets WHERE user_id = $1 FOR UPDATE`,
 			userID,
-		).Scan(&walletID, &balance, &version)
+		).Scan(&walletID, &balance, &bonusBalance, &version)
 		if err != nil {
 			return fmt.Errorf("lock wallet: %w", err)
 		}
 
-		// 2. Check sufficient balance
-		if balance < amount {
-			return fmt.Errorf("insufficient balance: have %d, want %d", balance, amount)
+		// 2. Check sufficient TOTAL balance (real + bonus)
+		if balance+bonusBalance < amount {
+			return fmt.Errorf("insufficient balance: have %d, want %d", balance+bonusBalance, amount)
 		}
 
-		// 3. Deduct from wallet with optimistic lock
+		// 3. Split the deduction: real money first, bonus remainder second
+		realDeducted := amount
+		if realDeducted > balance {
+			realDeducted = balance
+		}
+		bonusDeducted := amount - realDeducted
+
+		// Single two-column UPDATE: one version bump, one conflict check
 		tag, err := tx.Exec(ctx,
-			`UPDATE wallets SET balance = balance - $2, version = version + 1, updated_at = NOW()
-			 WHERE id = $1 AND version = $3`,
-			walletID, amount, version,
+			`UPDATE wallets SET balance = balance - $2, bonus_balance = GREATEST(bonus_balance - $3, 0), version = version + 1, updated_at = NOW()
+			 WHERE id = $1 AND version = $4`,
+			walletID, realDeducted, bonusDeducted, version,
 		)
 		if err != nil {
 			return fmt.Errorf("deduct balance: %w", err)
@@ -204,32 +217,35 @@ func (s *GameService) PlaceBet(ctx context.Context, userID, gameID, sessionID uu
 			return fmt.Errorf("insert bet: %w", err)
 		}
 
-		// 5. Record wallet transaction
+		// 5. Record wallet transaction (balance_after = REAL balance after the split)
 		_, err = tx.Exec(ctx,
 			`INSERT INTO transactions (id, wallet_id, type, amount, balance_after, reference, created_at)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-			uuid.New(), walletID, domain.TransactionBet, -amount, balance-amount,
+			uuid.New(), walletID, domain.TransactionBet, -amount, balance-realDeducted,
 			fmt.Sprintf("bet-%s", bet.ID.String()[:8]), time.Now().UTC(),
 		)
 		if err != nil {
 			return fmt.Errorf("record bet transaction: %w", err)
 		}
 
-		// 6. Process bonus wagering if bonus service is available
+		// 6. Process bonus wagering if bonus service is available.
+		// Wagering advances by the FULL bet amount (capped at the grant's
+		// remaining requirement) — the split UPDATE above already debited
+		// bonus_balance for its portion.
 		if s.bonusSvc != nil {
 			grant, err := s.bonusSvc.findActiveGrantForBet(ctx, tx, userID)
 			if err == nil && grant != nil {
 				remaining := grant.WageringRequiredCents - grant.TotalWageredCents
-				bonusPortion := amount
-				if bonusPortion > remaining {
-					bonusPortion = remaining
+				advance := amount
+				if advance > remaining {
+					advance = remaining
 				}
-				if bonusPortion > 0 {
-					if err := s.bonusSvc.ProcessBetBonus(ctx, tx, grant.ID, bonusPortion); err != nil {
+				if advance > 0 {
+					if err := s.bonusSvc.ProcessBetBonus(ctx, tx, grant.ID, advance); err != nil {
 						return fmt.Errorf("process bet bonus: %w", err)
 					}
 					// 7. If wagering completed, convert bonus to real balance
-					if grant.TotalWageredCents+bonusPortion >= grant.WageringRequiredCents {
+					if grant.TotalWageredCents+advance >= grant.WageringRequiredCents {
 						if err := s.bonusSvc.convertCompletedBonus(ctx, tx, userID, grant); err != nil {
 							return fmt.Errorf("convert completed bonus: %w", err)
 						}

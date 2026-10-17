@@ -778,10 +778,11 @@ func TestResolveBetLosses(t *testing.T) {
 
 // fakeWallet is an in-memory wallet row for tx-level testing.
 type fakeWallet struct {
-	id      uuid.UUID
-	userID  uuid.UUID
-	balance int64
-	version int
+	id           uuid.UUID
+	userID       uuid.UUID
+	balance      int64
+	bonusBalance int64
+	version      int
 }
 
 // fakeTxStore holds the in-memory state that the fake transaction operates on.
@@ -792,6 +793,11 @@ type fakeTxStore struct {
 	txLog         []domain.Transaction
 	queryRowError error // injectable error for QueryRow
 	execError     error // injectable error for Exec
+
+	// splitDeducts counts successful two-column (balance + bonus_balance)
+	// wallet deductions — the design-mandated single-UPDATE contract (design §5):
+	// one statement, one version bump, one optimistic-lock conflict check.
+	splitDeducts int
 }
 
 // fakeRow implements pgx.Row for QueryRow results.
@@ -849,6 +855,11 @@ func (tx *fakeTx) QueryRow(_ context.Context, sql string, args ...any) pgx.Row {
 			return &fakeRow{err: fmt.Errorf("wallet not found")}
 		}
 		w := tx.store.wallets[wid]
+		// Mirror the SQL's projection: the widened lock reads the bonus
+		// column too, the legacy lock (e.g. CreditWin) does not.
+		if strings.Contains(sql, "bonus_balance") {
+			return &fakeRow{values: []any{w.id, w.balance, w.bonusBalance, w.version}}
+		}
 		return &fakeRow{values: []any{w.id, w.balance, w.version}}
 	}
 	return &fakeRow{err: fmt.Errorf("unexpected query: %s", sql)}
@@ -860,17 +871,56 @@ func (tx *fakeTx) Exec(_ context.Context, sql string, args ...any) (pgconn.Comma
 	}
 
 	switch {
-	case strings.Contains(sql, "UPDATE wallets SET balance = balance -"):
-		// PlaceBet deduction: args = [walletID, amount, version]
+	case strings.Contains(sql, "UPDATE wallets SET balance = balance -") && strings.Contains(sql, "bonus_balance"):
+		// PlaceBet split deduction (design §5): one two-column UPDATE.
+		// args = [walletID, realDeducted, bonusDeducted, version]
 		wid := args[0].(uuid.UUID)
-		amount := args[1].(int64)
-		version := args[2].(int)
+		realDeducted := args[1].(int64)
+		bonusDeducted := args[2].(int64)
+		version := args[3].(int)
 		w := tx.store.wallets[wid]
 		if w == nil || w.version != version {
 			return pgconn.NewCommandTag("UPDATE 0"), nil
 		}
-		w.balance -= amount
+		w.balance -= realDeducted
+		w.bonusBalance -= bonusDeducted
+		if w.bonusBalance < 0 {
+			w.bonusBalance = 0 // mirrors GREATEST(bonus_balance - $3, 0)
+		}
 		w.version++
+		tx.store.splitDeducts++
+		return pgconn.NewCommandTag("UPDATE 1"), nil
+
+	case strings.Contains(sql, "SET bonus_balance = GREATEST(bonus_balance -") && strings.Contains(sql, "balance = balance +"):
+		// ConvertBonusToReal: args = [userID, amount]. Mirrors the SQL
+		// semantics exactly: bonus debit floored at zero, real balance
+		// credited by the FULL amount — so an uncapped production amount
+		// surfaces in tests as money minted out of nowhere.
+		wid, ok := tx.store.walletByUser[args[0].(uuid.UUID)]
+		if !ok {
+			return pgconn.NewCommandTag("UPDATE 0"), nil
+		}
+		w := tx.store.wallets[wid]
+		amount := args[1].(int64)
+		w.bonusBalance -= amount
+		if w.bonusBalance < 0 {
+			w.bonusBalance = 0
+		}
+		w.balance += amount
+		return pgconn.NewCommandTag("UPDATE 1"), nil
+
+	case strings.Contains(sql, "SET bonus_balance = GREATEST(bonus_balance -"):
+		// DebitBonusBalance: args = [userID, amount]; zero-floored debit only.
+		wid, ok := tx.store.walletByUser[args[0].(uuid.UUID)]
+		if !ok {
+			return pgconn.NewCommandTag("UPDATE 0"), nil
+		}
+		w := tx.store.wallets[wid]
+		amount := args[1].(int64)
+		w.bonusBalance -= amount
+		if w.bonusBalance < 0 {
+			w.bonusBalance = 0
+		}
 		return pgconn.NewCommandTag("UPDATE 1"), nil
 
 	case strings.Contains(sql, "UPDATE wallets SET balance = balance +"):

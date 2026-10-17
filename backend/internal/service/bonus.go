@@ -265,22 +265,25 @@ func (s *BonusService) ForfeitActiveGrantsTx(ctx context.Context, tx pgx.Tx, use
 // Game integration (runs inside the caller's PlaceBet transaction)
 // ---------------------------------------------------------------------------
 
-// ProcessBetBonus advances wagering on an active grant by the bonus-funded
-// portion of a bet. It MUST be called with the transaction that deducted the
-// bonus balance, so the increment commits or rolls back atomically with the
-// bet. IncrementWagered flips the grant to 'wagered' when the requirement is
-// met; every call appends a "wagered" ledger entry for the audit trail.
-func (s *BonusService) ProcessBetBonus(ctx context.Context, tx pgx.Tx, grantID uuid.UUID, bonusPortion int64) error {
-	if bonusPortion < 0 {
-		return fmt.Errorf("process bet bonus: negative portion %d", bonusPortion)
+// ProcessBetBonus advances wagering on an active grant by wageredAmount — the
+// FULL bet amount, which the caller caps at the grant's remaining requirement.
+// It MUST be called with the transaction that already settled the bonus debit
+// (PlaceBet's real-first/bonus-second split UPDATE), so the wagering increment
+// commits or rolls back atomically with the bet. This method only advances the
+// counter and audits the advance; it never moves money. IncrementWagered flips
+// the grant to 'wagered' when the requirement is met; every call appends a
+// "wagered" ledger entry for the audit trail.
+func (s *BonusService) ProcessBetBonus(ctx context.Context, tx pgx.Tx, grantID uuid.UUID, wageredAmount int64) error {
+	if wageredAmount < 0 {
+		return fmt.Errorf("process bet bonus: negative wagered amount %d", wageredAmount)
 	}
-	if bonusPortion == 0 {
+	if wageredAmount == 0 {
 		return nil
 	}
-	if err := s.grants.IncrementWagered(ctx, tx, grantID, bonusPortion); err != nil {
+	if err := s.grants.IncrementWagered(ctx, tx, grantID, wageredAmount); err != nil {
 		return fmt.Errorf("increment wagering for grant %s: %w", grantID, err)
 	}
-	return s.writeLedger(ctx, tx, grantID, domain.BonusLedgerWagered, bonusPortion)
+	return s.writeLedger(ctx, tx, grantID, domain.BonusLedgerWagered, wageredAmount)
 }
 
 // findActiveGrantForBet returns the user's active grant with the highest
@@ -307,19 +310,40 @@ func (s *BonusService) findActiveGrantForBet(ctx context.Context, tx pgx.Tx, use
 	return best, nil
 }
 
-// convertCompletedBonus moves the grant's bonus amount from bonus_balance to
-// real balance and flips the grant status to 'wagered'. Runs inside the caller's tx.
+// convertCompletedBonus moves the grant's remaining bonus money from
+// bonus_balance to real balance and flips the grant status to 'wagered' —
+// all inside the caller's transaction.
+//
+// The conversion is capped at the wallet's CURRENT bonus_balance: the
+// completing bet may itself have spent part of the bonus pool (real-first/
+// bonus-second split), so converting the original grant amount would mint
+// real money out of an already-spent pool. The wallet row is already locked
+// by PlaceBet's SELECT ... FOR UPDATE, so this re-read observes the post-split
+// balance; the ledger records what was ACTUALLY converted.
 func (s *BonusService) convertCompletedBonus(ctx context.Context, tx pgx.Tx, userID uuid.UUID, grant *domain.BonusGrant) error {
-	// Convert bonus balance to real balance
-	if err := s.wallets.ConvertBonusToReal(ctx, tx, userID, grant.BonusAmountCents); err != nil {
-		return err
+	// Re-read the locked wallet to learn the post-split bonus pool.
+	wallet, err := s.wallets.LockForUpdate(ctx, tx, userID)
+	if err != nil {
+		return fmt.Errorf("lock wallet for conversion: %w", err)
+	}
+
+	// Never convert more than this grant granted, nor more than the pool holds.
+	converted := grant.BonusAmountCents
+	if converted > wallet.BonusBalance {
+		converted = wallet.BonusBalance
+	}
+
+	if converted > 0 {
+		if err := s.wallets.ConvertBonusToReal(ctx, tx, userID, converted); err != nil {
+			return err
+		}
 	}
 	// Mark grant as wagered (completed)
 	if err := s.grants.UpdateStatus(ctx, tx, grant.ID, domain.BonusStatusWagered); err != nil {
 		return fmt.Errorf("mark grant wagered: %w", err)
 	}
-	// Write completion ledger entry
-	return s.writeLedger(ctx, tx, grant.ID, domain.BonusLedgerCompleted, grant.BonusAmountCents)
+	// Write completion ledger entry with the honest, actual converted amount
+	return s.writeLedger(ctx, tx, grant.ID, domain.BonusLedgerCompleted, converted)
 }
 
 // ---------------------------------------------------------------------------
