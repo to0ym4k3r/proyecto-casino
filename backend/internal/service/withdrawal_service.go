@@ -9,6 +9,7 @@ import (
 	"casino-backend/internal/repository"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // WithdrawalService handles crypto withdrawal requests with KYC limits,
@@ -20,6 +21,10 @@ type WithdrawalService struct {
 	emergencyPaused func(ctx context.Context) (bool, error)
 	outflowChecker  func(ctx context.Context, hotWalletBalance, newOutflow int64) (bool, error)
 	getHotBalance   func(ctx context.Context) (uint64, error)
+	// bonusSvc/txFunc are optional. When set, RequestWithdrawal forfeits the
+	// user's active bonus before debiting real money (spec Domain 2).
+	bonusSvc *BonusService
+	txFunc   TxFunc
 }
 
 // WithdrawalRepository defines persistence operations for withdrawals.
@@ -51,6 +56,19 @@ func NewWithdrawalService(
 // SetOutflowChecker configures the outflow cap check function.
 func (s *WithdrawalService) SetOutflowChecker(fn func(ctx context.Context, hotWalletBalance, newOutflow int64) (bool, error)) {
 	s.outflowChecker = fn
+}
+
+// SetBonusForfeit configures the optional forced-forfeit-on-withdrawal
+// dependency. When set, RequestWithdrawal surrenders every active bonus grant
+// (bonus_balance → 0, grants → forfeited, ledger entries written) through
+// txFunc before any real money is debited. The forfeit commits in its own
+// transaction, separate from the debit and withdrawal create that follow (see
+// the step-7 comment in RequestWithdrawal for the known atomicity gap). It is
+// nil-safe: leaving it unset keeps the pre-existing withdrawal behavior
+// unchanged.
+func (s *WithdrawalService) SetBonusForfeit(bonusSvc *BonusService, txFunc TxFunc) {
+	s.bonusSvc = bonusSvc
+	s.txFunc = txFunc
 }
 
 // RequestWithdrawal processes a crypto withdrawal request through the full pipeline:
@@ -118,19 +136,35 @@ func (s *WithdrawalService) RequestWithdrawal(
 		return nil, fmt.Errorf("insufficient balance: have %d, want %d", wallet.Balance, amount)
 	}
 
-	// 7. Determine approval status
+	// 7. Forfeit any active bonus BEFORE real money moves (spec Domain 2,
+	// scenario 4): withdrawing always surrenders the whole bonus pool. The
+	// forfeit commits in its OWN transaction, separate from the debit and
+	// withdrawal create that follow: a failure after the forfeit (e.g. debit
+	// or create error) leaves the pool forfeited with no withdrawal recorded,
+	// and a bonus claimed between the forfeit commit and the debit can
+	// survive the withdrawal. Known atomicity gap (R-001); single-transaction
+	// unification of forfeit+debit+create is deferred to a follow-up change.
+	if s.bonusSvc != nil && s.txFunc != nil {
+		if err := s.txFunc(ctx, func(tx pgx.Tx) error {
+			return s.bonusSvc.ForfeitActiveGrantsTx(ctx, tx, userID)
+		}); err != nil {
+			return nil, fmt.Errorf("forfeit active bonus: %w", err)
+		}
+	}
+
+	// 8. Determine approval status
 	status := domain.WithdrawalStatusApproved
 	threshold := AutoApprovalThreshold(tier)
 	if amount > threshold {
 		status = domain.WithdrawalStatusPendingApproval
 	}
 
-	// 8. Debit wallet
+	// 9. Debit wallet
 	if err := s.walletRepo.UpdateBalance(ctx, wallet.ID, -amount, wallet.Version); err != nil {
 		return nil, fmt.Errorf("debit balance: %w", err)
 	}
 
-	// 9. Create withdrawal record
+	// 10. Create withdrawal record
 	now := time.Now().UTC()
 	withdrawal := &domain.Withdrawal{
 		ID:        uuid.New(),

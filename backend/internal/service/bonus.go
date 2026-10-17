@@ -223,6 +223,44 @@ func (s *BonusService) ForfeitBonus(ctx context.Context, userID, grantID uuid.UU
 	})
 }
 
+// ForfeitActiveGrantsTx surrenders EVERY active grant the user holds and zeroes
+// wallets.bonus_balance, writing one "forfeited" ledger entry per grant — all
+// inside the caller's pgx.Tx. It backs the forced-forfeit-on-withdrawal rule
+// (spec Domain 2): a withdrawal strips the whole bonus pool before any real
+// money moves. The wallet row is locked first and the grant list is read under
+// that lock, matching ClaimBonus/ForfeitBonus/AdminExpireGrant; a user with no
+// active grant takes the lock but moves no money, leaving ordinary withdrawals
+// untouched.
+func (s *BonusService) ForfeitActiveGrantsTx(ctx context.Context, tx pgx.Tx, userID uuid.UUID) error {
+	// Lock the wallet row BEFORE listing grants. Listing under the lock closes
+	// the TOCTOU window where a concurrent claim or conversion changes the
+	// active set between the list and the lock.
+	if _, err := s.wallets.LockForUpdate(ctx, tx, userID); err != nil {
+		return err
+	}
+
+	grants, err := s.grants.ListActiveByUserTx(ctx, tx, userID)
+	if err != nil {
+		return fmt.Errorf("list active grants for forfeit: %w", err)
+	}
+	if len(grants) == 0 {
+		return nil
+	}
+	if err := s.wallets.ZeroBonusBalance(ctx, tx, userID); err != nil {
+		return err
+	}
+
+	for _, g := range grants {
+		if err := s.grants.UpdateStatus(ctx, tx, g.ID, domain.BonusStatusForfeited); err != nil {
+			return fmt.Errorf("mark grant %s forfeited: %w", g.ID, err)
+		}
+		if err := s.writeLedger(ctx, tx, g.ID, domain.BonusLedgerForfeited, g.BonusAmountCents); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // Game integration (runs inside the caller's PlaceBet transaction)
 // ---------------------------------------------------------------------------
@@ -295,9 +333,29 @@ func (s *BonusService) convertCompletedBonus(ctx context.Context, tx pgx.Tx, use
 func (s *BonusService) ExpireStaleBonuses(ctx context.Context) (int, error) {
 	var count int
 	err := s.txFunc(ctx, func(tx pgx.Tx) error {
+		// ExpireStale must run first: it is what discovers the affected
+		// users, so the wallet locks cannot precede it (see below).
 		stale, err := s.grants.ExpireStale(ctx, tx)
 		if err != nil {
 			return err
+		}
+
+		// Lock every affected wallet BEFORE settling money, so the debit and
+		// ledger writes run under the same row lock the claim/forfeit paths
+		// take. Locks are deduplicated per user in first-seen grant order;
+		// they are not globally sorted, so a concurrent flow taking locks in
+		// a different order can deadlock — Postgres resolves that by aborting
+		// one transaction rather than corrupting state, and the scheduler
+		// retries on its next tick.
+		seen := make(map[uuid.UUID]struct{}, len(stale))
+		for _, g := range stale {
+			if _, ok := seen[g.UserID]; ok {
+				continue
+			}
+			seen[g.UserID] = struct{}{}
+			if _, err := s.wallets.LockForUpdate(ctx, tx, g.UserID); err != nil {
+				return err
+			}
 		}
 
 		for _, g := range stale {
