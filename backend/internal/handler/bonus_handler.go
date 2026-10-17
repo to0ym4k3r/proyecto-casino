@@ -30,6 +30,8 @@ type BonusServicer interface {
 	CreateOrUpdateBonus(ctx context.Context, def *domain.BonusDefinition) error
 	AdminListGrants(ctx context.Context, status string, userID *uuid.UUID, limit, offset int) ([]domain.BonusGrant, int, error)
 	AdminExpireGrant(ctx context.Context, grantID uuid.UUID) error
+	AdminGrant(ctx context.Context, adminID, userID, defID uuid.UUID, params map[string]interface{}) (*domain.BonusClaimResult, error)
+	AdminRevoke(ctx context.Context, adminID, grantID uuid.UUID) error
 }
 
 // BonusHandler handles HTTP requests for user-facing bonus endpoints.
@@ -102,6 +104,8 @@ func (h *BonusHandler) Claim(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, domain.ErrActiveBonusExists):
 			response.Error(w, http.StatusConflict, err.Error())
 		case errors.Is(err, domain.ErrBonusNotActive):
+			response.Error(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, domain.ErrBonusNotClaimable):
 			response.Error(w, http.StatusBadRequest, err.Error())
 		default:
 			response.Error(w, http.StatusInternalServerError, "failed to claim bonus")

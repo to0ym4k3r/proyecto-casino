@@ -307,6 +307,29 @@ func TestClaimBonus409Conflict(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Test: ClaimBonus — not claimable → 400
+// ---------------------------------------------------------------------------
+
+func TestClaimBonus400NotClaimable(t *testing.T) {
+	fake := newFakeBonusService()
+	fake.errMap["ClaimBonus"] = domain.ErrBonusNotClaimable
+	h := NewBonusHandler(fake)
+	router := bonusRouter(h)
+
+	body := claimBonusRequest{DefinitionID: uuid.New().String()}
+	bodyBytes, _ := json.Marshal(body)
+
+	req := httptest.NewRequest(http.MethodPost, "/bonuses/claim", bytes.NewReader(bodyBytes))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(userCtx(uuid.New()))
+	w := httptest.NewRecorder()
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// ---------------------------------------------------------------------------
 // Test: ListActiveGrants — happy path
 // ---------------------------------------------------------------------------
 

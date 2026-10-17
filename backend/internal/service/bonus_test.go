@@ -75,6 +75,14 @@ type incrementRecord struct {
 	amount int64
 }
 
+// fakeGetByID scripts a single GetByID result. Tests that need to model a
+// TOCTOU race (a stale pre-transaction read vs. the committed in-transaction
+// re-read) push a sequence of these onto fakeGrantRepo.getByIDQueue.
+type fakeGetByID struct {
+	grant *domain.BonusGrant
+	err   error
+}
+
 // fakeGrantRepo implements repository.BonusGrantRepository.
 type fakeGrantRepo struct {
 	byID            map[uuid.UUID]*domain.BonusGrant
@@ -82,6 +90,11 @@ type fakeGrantRepo struct {
 	activeByUser    []domain.BonusGrant
 	expireStaleOut  []domain.BonusGrant
 	createErr       error
+
+	// getByIDQueue, when non-empty, is consumed one entry per GetByID call
+	// before falling back to byID. It lets a test replay the exact per-call
+	// reads of a concurrent/stale sequence.
+	getByIDQueue []fakeGetByID
 
 	created    []*domain.BonusGrant
 	createdTxs []pgx.Tx
@@ -99,6 +112,11 @@ func (f *fakeGrantRepo) Create(_ context.Context, tx pgx.Tx, grant *domain.Bonus
 }
 
 func (f *fakeGrantRepo) GetByID(_ context.Context, id uuid.UUID) (*domain.BonusGrant, error) {
+	if len(f.getByIDQueue) > 0 {
+		next := f.getByIDQueue[0]
+		f.getByIDQueue = f.getByIDQueue[1:]
+		return next.grant, next.err
+	}
 	if g, ok := f.byID[id]; ok {
 		return g, nil
 	}
@@ -830,4 +848,270 @@ func TestFreeSpinsHandlerFixedAmountAndGameEligibility(t *testing.T) {
 			t.Errorf("matching game err = %v, want nil", err)
 		}
 	})
+}
+
+// --- AdminGrant -------------------------------------------------------------
+
+func TestAdminGrantMirrorsClaimAndStampsAdminOrigin(t *testing.T) {
+	h := newBonusTestHarness(t)
+	def := welcomeDefinition()
+	h.defs.byID[def.ID] = def
+	adminID := uuid.New()
+	userID := uuid.New()
+	deposit := int64(10000)
+
+	res, err := h.svc.AdminGrant(context.Background(), adminID, userID, def.ID, map[string]interface{}{"deposit_cents": float64(deposit)})
+	if err != nil {
+		t.Fatalf("AdminGrant: %v", err)
+	}
+	if res == nil || res.GrantID == uuid.Nil {
+		t.Fatalf("result = %+v, want a non-nil grant id", res)
+	}
+	if res.BonusAmountCents != 10000 || res.WageringRequiredCents != 300000 {
+		t.Errorf("pricing = (%d, %d), want (10000, 300000)", res.BonusAmountCents, res.WageringRequiredCents)
+	}
+
+	// Exactly one grant persisted, inside the harness transaction.
+	if len(h.grants.created) != 1 {
+		t.Fatalf("created %d grants, want 1", len(h.grants.created))
+	}
+	g := h.grants.created[0]
+	if g.UserID != userID || g.BonusDefinitionID != def.ID {
+		t.Errorf("grant identity = (%s, %s), want (%s, %s)", g.UserID, g.BonusDefinitionID, userID, def.ID)
+	}
+	if g.Status != domain.BonusStatusActive {
+		t.Errorf("grant Status = %q, want %q", g.Status, domain.BonusStatusActive)
+	}
+	// The whole point of AdminGrant vs ClaimBonus: provenance.
+	if g.GrantedBy != domain.GrantedByAdmin {
+		t.Errorf("GrantedBy = %q, want %q", g.GrantedBy, domain.GrantedByAdmin)
+	}
+	if g.AdminID == nil || *g.AdminID != adminID {
+		t.Errorf("AdminID = %v, want %s", g.AdminID, adminID)
+	}
+
+	// Bonus balance credited with the priced amount inside the same tx.
+	foundCredit := false
+	for _, e := range h.tx.execs {
+		if strings.Contains(e.sql, "bonus_balance = bonus_balance +") &&
+			len(e.args) == 2 && e.args[0] == userID && e.args[1] == int64(10000) {
+			foundCredit = true
+		}
+	}
+	if !foundCredit {
+		t.Errorf("wallet credit of 10000 for %s not recorded; execs=%d", userID, len(h.tx.execs))
+	}
+
+	// One 'granted' ledger entry for the new grant, same tx.
+	if len(h.ledger.entries) != 1 {
+		t.Fatalf("ledger entries = %d, want 1", len(h.ledger.entries))
+	}
+	e := h.ledger.entries[0]
+	if e.TransactionType != domain.BonusLedgerGranted || e.AmountCents != 10000 || e.GrantID != g.ID {
+		t.Errorf("ledger entry = %+v, want granted/10000/%s", e, g.ID)
+	}
+}
+
+func TestAdminGrantDuplicateActiveGrantRejectedBeforeAnyMoneyMoves(t *testing.T) {
+	h := newBonusTestHarness(t)
+	def := welcomeDefinition()
+	h.defs.byID[def.ID] = def
+	h.grants.activeByUserDef = &domain.BonusGrant{ID: uuid.New(), Status: domain.BonusStatusActive}
+
+	_, err := h.svc.AdminGrant(context.Background(), uuid.New(), uuid.New(), def.ID, map[string]interface{}{"deposit_cents": float64(10000)})
+	if !errors.Is(err, domain.ErrActiveBonusExists) {
+		t.Fatalf("err = %v, want domain.ErrActiveBonusExists", err)
+	}
+	if len(h.grants.created) != 0 || len(h.ledger.entries) != 0 {
+		t.Error("duplicate admin grant must not create grants or ledger entries")
+	}
+	if len(h.tx.execs) != 0 {
+		t.Errorf("duplicate admin grant must not move money, got %d wallet execs", len(h.tx.execs))
+	}
+}
+
+func TestAdminGrantUnknownDefinitionRejected(t *testing.T) {
+	h := newBonusTestHarness(t)
+
+	_, err := h.svc.AdminGrant(context.Background(), uuid.New(), uuid.New(), uuid.New(), nil)
+	if !errors.Is(err, domain.ErrBonusNotFound) {
+		t.Fatalf("err = %v, want domain.ErrBonusNotFound", err)
+	}
+	if len(h.grants.created) != 0 {
+		t.Error("unknown definition must not create grants")
+	}
+}
+
+// --- AdminRevoke ------------------------------------------------------------
+
+func TestAdminRevokeForfeitsGrantWithoutOwnership(t *testing.T) {
+	h := newBonusTestHarness(t)
+	owner := uuid.New()
+	grant := activeGrant(owner, uuid.New(), 5000)
+	h.grants.byID[grant.ID] = grant
+
+	// A DIFFERENT admin (not the owner) revokes the grant — no ownership rule.
+	adminID := uuid.New()
+	if err := h.svc.AdminRevoke(context.Background(), adminID, grant.ID); err != nil {
+		t.Fatalf("AdminRevoke: %v", err)
+	}
+
+	// Bonus balance debited by the grant amount for the OWNER, zero-floored.
+	foundDebit := false
+	for _, e := range h.tx.execs {
+		if strings.Contains(e.sql, "GREATEST(bonus_balance -") &&
+			len(e.args) == 2 && e.args[0] == owner && e.args[1] == int64(5000) {
+			foundDebit = true
+		}
+	}
+	if !foundDebit {
+		t.Errorf("revoke debit of 5000 for %s not recorded; execs=%d", owner, len(h.tx.execs))
+	}
+
+	// Grant flipped to forfeited inside the same tx.
+	if len(h.grants.statuses) != 1 {
+		t.Fatalf("status updates = %d, want 1", len(h.grants.statuses))
+	}
+	up := h.grants.statuses[0]
+	if up.id != grant.ID || up.status != domain.BonusStatusForfeited || up.tx != pgx.Tx(h.tx) {
+		t.Errorf("status update = {%s %s tx-match:%v}, want forfeited on harness tx",
+			up.id, up.status, up.tx == pgx.Tx(h.tx))
+	}
+
+	// One forfeited ledger entry with the surrendered amount.
+	if len(h.ledger.entries) != 1 {
+		t.Fatalf("ledger entries = %d, want 1", len(h.ledger.entries))
+	}
+	e := h.ledger.entries[0]
+	if e.TransactionType != domain.BonusLedgerForfeited || e.AmountCents != 5000 || e.GrantID != grant.ID {
+		t.Errorf("ledger entry = %+v, want forfeited/5000/%s", e, grant.ID)
+	}
+}
+
+func TestAdminRevokeRejectsMissingGrant(t *testing.T) {
+	h := newBonusTestHarness(t)
+
+	err := h.svc.AdminRevoke(context.Background(), uuid.New(), uuid.New())
+	if !errors.Is(err, domain.ErrGrantNotFound) {
+		t.Fatalf("err = %v, want domain.ErrGrantNotFound", err)
+	}
+	if len(h.tx.execs) != 0 || len(h.grants.statuses) != 0 || len(h.ledger.entries) != 0 {
+		t.Error("missing grant revoke must not move money or state")
+	}
+}
+
+// countBonusDebits counts per-grant bonus_balance debits for one user.
+func countBonusDebits(tx *recordingTx, userID uuid.UUID) int {
+	n := 0
+	for _, e := range tx.execs {
+		if strings.Contains(e.sql, "GREATEST(bonus_balance -") &&
+			len(e.args) == 2 && e.args[0] == userID {
+			n++
+		}
+	}
+	return n
+}
+
+// countLedgerOfType counts ledger entries of a given type.
+func countLedgerOfType(l *fakeLedgerRepo, entryType string) int {
+	n := 0
+	for _, e := range l.entries {
+		if e.TransactionType == entryType {
+			n++
+		}
+	}
+	return n
+}
+
+// TestAdminRevokeSecondCallDoesNotDoubleDebit models the RR-1 race: two revokes
+// of the SAME grant both slip past the pre-transaction status check (the second
+// read is stale), but the post-lock re-read inside the transaction observes the
+// already-committed 'forfeited' status, so the second call must fail WITHOUT
+// debiting bonus_balance again or writing a duplicate ledger row.
+func TestAdminRevokeSecondCallDoesNotDoubleDebit(t *testing.T) {
+	h := newBonusTestHarness(t)
+	owner := uuid.New()
+	grant := activeGrant(owner, uuid.New(), 5000)
+	forfeited := *grant
+	forfeited.Status = domain.BonusStatusForfeited
+
+	// Request 1: pre-tx read and in-tx re-read both see 'active'.
+	// Request 2: pre-tx read is stale ('active') but the in-tx re-read, taken
+	// after the wallet lock, observes the committed 'forfeited' state.
+	h.grants.getByIDQueue = []fakeGetByID{
+		{grant: grant},      // req1 pre-tx
+		{grant: grant},      // req1 in-tx
+		{grant: grant},      // req2 pre-tx (stale)
+		{grant: &forfeited}, // req2 in-tx (committed)
+	}
+
+	if err := h.svc.AdminRevoke(context.Background(), uuid.New(), grant.ID); err != nil {
+		t.Fatalf("first AdminRevoke: %v", err)
+	}
+	err := h.svc.AdminRevoke(context.Background(), uuid.New(), grant.ID)
+	if err == nil {
+		t.Fatal("second AdminRevoke must fail, got nil")
+	}
+	if !errors.Is(err, domain.ErrBonusNotActive) {
+		t.Fatalf("second AdminRevoke err = %v, want domain.ErrBonusNotActive", err)
+	}
+
+	if got := countBonusDebits(h.tx, owner); got != 1 {
+		t.Errorf("bonus_balance debited %d times, want exactly 1", got)
+	}
+	if got := countLedgerOfType(h.ledger, domain.BonusLedgerForfeited); got != 1 {
+		t.Errorf("forfeited ledger rows = %d, want exactly 1", got)
+	}
+	if len(h.grants.statuses) != 1 {
+		t.Errorf("status updates = %d, want 1", len(h.grants.statuses))
+	}
+}
+
+// TestAdminRevokeStaleActiveReadDoesNotForfeitWageredGrant covers the other
+// half of RR-1: a grant that completed to 'wagered' between the pre-tx check
+// and the row lock must NOT be regressed to 'forfeited' nor debited.
+func TestAdminRevokeStaleActiveReadDoesNotForfeitWageredGrant(t *testing.T) {
+	h := newBonusTestHarness(t)
+	owner := uuid.New()
+	grant := activeGrant(owner, uuid.New(), 5000)
+	wagered := *grant
+	wagered.Status = domain.BonusStatusWagered
+
+	// Pre-tx read sees stale 'active'; in-tx re-read sees committed 'wagered'.
+	h.grants.getByIDQueue = []fakeGetByID{
+		{grant: grant},
+		{grant: &wagered},
+	}
+
+	err := h.svc.AdminRevoke(context.Background(), uuid.New(), grant.ID)
+	if !errors.Is(err, domain.ErrBonusNotActive) {
+		t.Fatalf("err = %v, want domain.ErrBonusNotActive", err)
+	}
+	if len(h.tx.execs) != 0 {
+		t.Errorf("wagered grant must not be debited, got %d wallet execs", len(h.tx.execs))
+	}
+	if len(h.grants.statuses) != 0 {
+		t.Error("wagered grant status must not change")
+	}
+	if len(h.ledger.entries) != 0 {
+		t.Error("wagered grant must not produce a ledger row")
+	}
+}
+
+// TestAdminRevokeRejectsNonActiveGrant exercises the kept pre-tx fast path: a
+// grant already non-active (e.g. completed to 'wagered') is rejected before any
+// transaction is opened.
+func TestAdminRevokeRejectsNonActiveGrant(t *testing.T) {
+	h := newBonusTestHarness(t)
+	grant := activeGrant(uuid.New(), uuid.New(), 5000)
+	grant.Status = domain.BonusStatusWagered // completed: real money, not forfeitable
+	h.grants.byID[grant.ID] = grant
+
+	err := h.svc.AdminRevoke(context.Background(), uuid.New(), grant.ID)
+	if !errors.Is(err, domain.ErrBonusNotActive) {
+		t.Fatalf("err = %v, want domain.ErrBonusNotActive", err)
+	}
+	if len(h.grants.statuses) != 0 || len(h.tx.execs) != 0 {
+		t.Error("non-active grant must stay untouched")
+	}
 }

@@ -2,11 +2,13 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"casino-backend/internal/domain"
+	"casino-backend/internal/middleware"
 	"casino-backend/pkg/response"
 
 	"github.com/go-chi/chi/v5"
@@ -39,6 +41,18 @@ type adminCreateDefRequest struct {
 	MinDepositCents     int64                  `json:"min_deposit_cents"`
 	IsActive            bool                   `json:"is_active"`
 	Config              map[string]interface{} `json:"config"`
+}
+
+// adminGrantRequest is the request body for the manual bonus grant endpoint.
+type adminGrantRequest struct {
+	UserID       string                 `json:"user_id"`
+	DefinitionID string                 `json:"definition_id"`
+	Params       map[string]interface{} `json:"params,omitempty"`
+}
+
+// adminRevokeRequest is the request body for the manual grant revoke endpoint.
+type adminRevokeRequest struct {
+	GrantID string `json:"grant_id"`
 }
 
 // ---------------------------------------------------------------------------
@@ -221,6 +235,107 @@ func (h *AdminBonusHandler) ExpireGrant(w http.ResponseWriter, r *http.Request) 
 			response.Error(w, http.StatusNotFound, err.Error())
 		default:
 			response.Error(w, http.StatusInternalServerError, "failed to expire grant")
+		}
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]bool{"success": true})
+}
+
+// ---------------------------------------------------------------------------
+// AdminGrant — manually grants a bonus to a user (spec D4 S2).
+// ---------------------------------------------------------------------------
+
+// AdminGrant manually grants a bonus definition to a target user. The acting
+// admin is taken from the JWT context; the grant is stamped with
+// granted_by='admin' by the service. Returns 201 with the created grant terms.
+func (h *AdminBonusHandler) AdminGrant(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+
+	var req adminGrantRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if strings.TrimSpace(req.UserID) == "" || strings.TrimSpace(req.DefinitionID) == "" {
+		response.Error(w, http.StatusBadRequest, "user_id and definition_id are required")
+		return
+	}
+
+	userID, err := uuid.Parse(req.UserID)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid user_id")
+		return
+	}
+	defID, err := uuid.Parse(req.DefinitionID)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid definition_id")
+		return
+	}
+
+	adminID := middleware.UserIDFromContext(r.Context())
+
+	result, err := h.svc.AdminGrant(r.Context(), adminID, userID, defID, req.Params)
+	if err != nil {
+		switch {
+		case errors.Is(err, domain.ErrBonusNotFound):
+			response.Error(w, http.StatusNotFound, err.Error())
+		case errors.Is(err, domain.ErrActiveBonusExists):
+			response.Error(w, http.StatusConflict, err.Error())
+		case errors.Is(err, domain.ErrBonusNotActive):
+			response.Error(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, domain.ErrBonusNotClaimable):
+			response.Error(w, http.StatusBadRequest, err.Error())
+		default:
+			response.Error(w, http.StatusInternalServerError, "failed to grant bonus")
+		}
+		return
+	}
+
+	response.JSON(w, http.StatusCreated, result)
+}
+
+// ---------------------------------------------------------------------------
+// AdminRevoke — revokes (forfeits) a grant (spec D4 S3).
+// ---------------------------------------------------------------------------
+
+// AdminRevoke forfeits a single active grant. The grant need not belong to the
+// calling admin (admins may revoke any user's grant). Returns 200 on success.
+func (h *AdminBonusHandler) AdminRevoke(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(w, r) {
+		return
+	}
+
+	var req adminRevokeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if strings.TrimSpace(req.GrantID) == "" {
+		response.Error(w, http.StatusBadRequest, "grant_id is required")
+		return
+	}
+
+	grantID, err := uuid.Parse(req.GrantID)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid grant_id")
+		return
+	}
+
+	adminID := middleware.UserIDFromContext(r.Context())
+
+	if err := h.svc.AdminRevoke(r.Context(), adminID, grantID); err != nil {
+		switch {
+		case errors.Is(err, domain.ErrGrantNotFound):
+			response.Error(w, http.StatusNotFound, err.Error())
+		case errors.Is(err, domain.ErrBonusNotActive):
+			response.Error(w, http.StatusBadRequest, err.Error())
+		default:
+			response.Error(w, http.StatusInternalServerError, "failed to revoke grant")
 		}
 		return
 	}

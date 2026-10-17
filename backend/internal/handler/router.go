@@ -154,6 +154,8 @@ func (rt *Router) Setup() *chi.Mux {
 				r.Put("/bonuses/{id}", ah.UpdateDefinition)
 				r.Get("/bonuses/grants", ah.ListGrants)
 				r.Post("/bonuses/{id}/expire", ah.ExpireGrant)
+				r.Post("/bonuses/grant", ah.AdminGrant)
+				r.Post("/bonuses/revoke", ah.AdminRevoke)
 			}
 		})
 

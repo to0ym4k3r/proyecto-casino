@@ -480,3 +480,148 @@ func (s *BonusService) AdminExpireGrant(ctx context.Context, grantID uuid.UUID) 
 		return s.writeLedger(ctx, tx, grant.ID, domain.BonusLedgerExpired, grant.BonusAmountCents)
 	})
 }
+
+// AdminGrant materializes a bonus grant on behalf of an admin. It mirrors
+// ClaimBonus exactly — definition lookup, active-flag and type-handler
+// validation/pricing, the in-tx duplicate-active check plus the partial unique
+// index (belt-and-braces), crediting wallets.bonus_balance and writing a
+// "granted" ledger entry — but stamps the grant with granted_by='admin' and
+// the acting admin_id. Everything runs in ONE transaction with the wallet row
+// locked first, so a failure mid-flow rolls back the grant, the balance and
+// the ledger together.
+func (s *BonusService) AdminGrant(ctx context.Context, adminID, userID, defID uuid.UUID, params map[string]interface{}) (*domain.BonusClaimResult, error) {
+	// Pure pre-checks outside the transaction: fail fast before locking rows.
+	def, err := s.defs.GetByID(ctx, defID)
+	if err != nil {
+		if errors.Is(err, repository.ErrBonusDefinitionNotFound) {
+			return nil, fmt.Errorf("admin grant: %w", domain.ErrBonusNotFound)
+		}
+		return nil, fmt.Errorf("admin grant: %w", err)
+	}
+	if !def.IsActive {
+		return nil, fmt.Errorf("admin grant %s: %w", def.Code, domain.ErrBonusNotActive)
+	}
+
+	handler, ok := s.handlers[def.Code]
+	if !ok {
+		return nil, fmt.Errorf("admin grant %s: %w", def.Code, domain.ErrBonusNotClaimable)
+	}
+	if err := handler.ValidateClaim(ctx, userID, def, params); err != nil {
+		return nil, fmt.Errorf("admin grant %s: %w", def.Code, err)
+	}
+	amount, err := handler.CalculateBonus(ctx, def, params)
+	if err != nil {
+		return nil, fmt.Errorf("admin grant %s: %w", def.Code, err)
+	}
+
+	var result *domain.BonusClaimResult
+	err = s.txFunc(ctx, func(tx pgx.Tx) error {
+		// Serialize money operations on this wallet row.
+		if _, err := s.wallets.LockForUpdate(ctx, tx, userID); err != nil {
+			return err
+		}
+
+		// Secondary duplicate check under the row lock; the partial unique
+		// index on (user_id, definition_id) WHERE status='active' is primary.
+		if _, err := s.grants.GetActiveByUserAndDefinition(ctx, tx, userID, defID); err == nil {
+			return fmt.Errorf("admin grant %s: %w", def.Code, domain.ErrActiveBonusExists)
+		} else if !errors.Is(err, repository.ErrBonusGrantNotFound) {
+			return fmt.Errorf("admin grant %s: %w", def.Code, err)
+		}
+
+		now := time.Now().UTC()
+		expiresAt := now.AddDate(0, 0, def.ExpiryDays)
+		admin := adminID
+		grant := &domain.BonusGrant{
+			ID:                    uuid.New(),
+			UserID:                userID,
+			BonusDefinitionID:     def.ID,
+			BonusAmountCents:      amount,
+			WageringRequiredCents: amount * int64(def.WageringMultiplier),
+			Status:                domain.BonusStatusActive,
+			GrantedBy:             domain.GrantedByAdmin,
+			AdminID:               &admin,
+			ExpiresAt:             expiresAt,
+			CreatedAt:             now,
+			UpdatedAt:             now,
+		}
+		if err := s.grants.Create(ctx, tx, grant); err != nil {
+			if errors.Is(err, repository.ErrActiveBonusGrantExists) {
+				return fmt.Errorf("admin grant %s: %w", def.Code, domain.ErrActiveBonusExists)
+			}
+			return fmt.Errorf("create grant: %w", err)
+		}
+
+		if err := s.wallets.CreditBonusBalance(ctx, tx, userID, amount); err != nil {
+			return err
+		}
+
+		if err := s.writeLedger(ctx, tx, grant.ID, domain.BonusLedgerGranted, amount); err != nil {
+			return err
+		}
+
+		result = &domain.BonusClaimResult{
+			GrantID:               grant.ID,
+			BonusAmountCents:      amount,
+			WageringRequiredCents: grant.WageringRequiredCents,
+			ExpiresAt:             expiresAt.Format(time.RFC3339),
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// AdminRevoke forfeits ONE active grant on behalf of an admin. Unlike
+// ForfeitBonus it does NOT require the grant to belong to the caller — an
+// admin may revoke any user's grant. It debits that grant's bonus amount from
+// the OWNER's wallets.bonus_balance (per-grant debit with a zero floor, so
+// coexisting grants keep their own money), flips the grant to 'forfeited' and
+// writes a "forfeited" ledger entry — all in ONE transaction with the wallet
+// row locked first. Missing or non-active grants are rejected.
+func (s *BonusService) AdminRevoke(ctx context.Context, _ uuid.UUID, grantID uuid.UUID) error {
+	grant, err := s.grants.GetByID(ctx, grantID)
+	if err != nil {
+		if errors.Is(err, repository.ErrBonusGrantNotFound) {
+			return fmt.Errorf("admin revoke: %w", domain.ErrGrantNotFound)
+		}
+		return fmt.Errorf("admin revoke: %w", err)
+	}
+	if grant.Status != domain.BonusStatusActive {
+		return fmt.Errorf("admin revoke: %w", domain.ErrBonusNotActive)
+	}
+
+	return s.txFunc(ctx, func(tx pgx.Tx) error {
+		if _, err := s.wallets.LockForUpdate(ctx, tx, grant.UserID); err != nil {
+			return err
+		}
+		// Authoritative status guard INSIDE the transaction, AFTER the wallet
+		// row lock. The pre-tx check above is only a fast path: two concurrent
+		// revokes can both pass it (stale reads) and the wallet FOR UPDATE lock
+		// merely serializes them. Re-reading here under READ COMMITTED (pgx's
+		// default isolation) observes the latest committed state, so the loser
+		// of the race sees a non-active status and aborts WITHOUT debiting
+		// bonus_balance or writing a duplicate ledger row. This also prevents
+		// regressing a grant that completed to 'wagered' between the pre-check
+		// and the lock.
+		reloaded, err := s.grants.GetByID(ctx, grantID)
+		if err != nil {
+			if errors.Is(err, repository.ErrBonusGrantNotFound) {
+				return fmt.Errorf("admin revoke: %w", domain.ErrGrantNotFound)
+			}
+			return fmt.Errorf("admin revoke: %w", err)
+		}
+		if reloaded.Status != domain.BonusStatusActive {
+			return fmt.Errorf("admin revoke: %w", domain.ErrBonusNotActive)
+		}
+		if err := s.wallets.DebitBonusBalance(ctx, tx, grant.UserID, reloaded.BonusAmountCents); err != nil {
+			return err
+		}
+		if err := s.grants.UpdateStatus(ctx, tx, reloaded.ID, domain.BonusStatusForfeited); err != nil {
+			return fmt.Errorf("mark grant forfeited: %w", err)
+		}
+		return s.writeLedger(ctx, tx, reloaded.ID, domain.BonusLedgerForfeited, reloaded.BonusAmountCents)
+	})
+}
