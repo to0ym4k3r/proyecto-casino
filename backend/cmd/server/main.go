@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os"
 	"os/signal"
@@ -9,13 +10,16 @@ import (
 	"time"
 
 	"casino-backend/internal/config"
+	"casino-backend/internal/domain"
 	"casino-backend/internal/handler"
 	"casino-backend/internal/mailer"
+	"casino-backend/internal/repository"
 	"casino-backend/internal/repository/postgres"
 	"casino-backend/internal/service"
 	"casino-backend/internal/storage"
 	"casino-backend/pkg/logger"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -60,6 +64,7 @@ func main() {
 	registrationRepo := postgres.NewPostgresRegistrationRepo(pool)
 	kycRepo := postgres.NewPostgresKycRepo(pool)
 	depositAddrRepo := postgres.NewPostgresDepositAddressRepo(pool)
+	withdrawalRepo := postgres.NewPostgresWithdrawalRepo(pool)
 	betRepo := postgres.NewPostgresBetRepo(pool)
 	sessionRepo := postgres.NewPostgresGameSessionRepo(pool)
 	bonusDefRepo := postgres.NewPostgresBonusDefinitionRepo(pool)
@@ -99,7 +104,7 @@ func main() {
 
 	authHandler := handler.NewAuthHandler(authService)
 	gameHandler := handler.NewGameHandler(gameService)
-	walletHandler := handler.NewWalletHandler(walletService, nil, nil, depositAddrRepo)
+	walletHandler := buildWalletHandler(walletService, walletRepo, withdrawalRepo, kycService, bonusService, txFunc, depositAddrRepo)
 	userHandler := handler.NewUserHandler(userService)
 	kycStore := storage.NewLocalStore(cfg.Storage.KycDir)
 	kycHandler := handler.NewKycHandler(kycService, kycStore)
@@ -137,4 +142,43 @@ func main() {
 	}
 
 	log.Info().Msg("server stopped gracefully")
+}
+
+// buildWalletHandler assembles the wallet handler with its production
+// dependencies. The WithdrawalService must not be nil: the registered crypto
+// withdrawal routes call RequestWithdrawal on it, and the bonus forfeit on
+// withdrawal (spec Domain 2, scenario 4) needs the bonus service and txFunc.
+// Known stubs until their stores land: withdrawals are never reported paused,
+// and the hot-wallet balance fails closed (consulted only once an outflow
+// checker is configured, which production does not set).
+func buildWalletHandler(
+	walletService *service.WalletService,
+	walletRepo repository.WalletRepository,
+	withdrawalRepo service.WithdrawalRepository,
+	kycService *service.KycService,
+	bonusService *service.BonusService,
+	txFunc service.TxFunc,
+	depositAddrRepo postgres.DepositAddressRepository,
+) *handler.WalletHandler {
+	withdrawalSvc := service.NewWithdrawalService(
+		walletRepo,
+		withdrawalRepo,
+		func(ctx context.Context, userID uuid.UUID) (service.KYCTier, error) {
+			sub, err := kycService.Status(ctx, userID)
+			if err != nil {
+				if errors.Is(err, service.ErrKycNotFound) {
+					return service.KYCUnverified, nil
+				}
+				return "", err
+			}
+			if sub.Status == domain.KycStatusApproved {
+				return service.KYCL1, nil
+			}
+			return service.KYCUnverified, nil
+		},
+		func(_ context.Context) (bool, error) { return false, nil },
+		func(_ context.Context) (uint64, error) { return 0, errors.New("hot wallet balance not wired") },
+	)
+	withdrawalSvc.SetBonusForfeit(bonusService, txFunc)
+	return handler.NewWalletHandler(walletService, withdrawalSvc, nil, depositAddrRepo)
 }
