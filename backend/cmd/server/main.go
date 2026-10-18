@@ -98,7 +98,7 @@ func main() {
 	userService := service.NewUserService(userRepo)
 	kycService := service.NewKycService(kycRepo)
 
-	expiryScheduler := service.NewBonusExpiryScheduler(bonusService, time.Hour, log)
+	expiryScheduler := service.NewBonusExpiryScheduler(bonusService, service.DefaultExpiryInterval, log)
 	expiryScheduler.Start(context.Background())
 	defer expiryScheduler.Stop()
 

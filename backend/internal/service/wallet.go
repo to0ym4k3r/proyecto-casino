@@ -96,7 +96,7 @@ func (s *WalletService) DebitBonusBalance(ctx context.Context, tx pgx.Tx, userID
 
 // ZeroBonusBalance sets wallets.bonus_balance to 0 inside the caller's
 // transaction. Intended for forced forfeit paths (e.g. whole-pool surrender
-// on withdrawal) once such callers land.
+// on withdrawal).
 func (s *WalletService) ZeroBonusBalance(ctx context.Context, tx pgx.Tx, userID uuid.UUID) error {
 	tag, err := tx.Exec(ctx,
 		`UPDATE wallets SET bonus_balance = 0, updated_at = NOW() WHERE user_id = $1`,

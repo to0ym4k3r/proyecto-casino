@@ -14,11 +14,16 @@ type ExpiryRunner interface {
 
 // BonusExpiryScheduler runs ExpireStaleBonuses on a fixed interval.
 type BonusExpiryScheduler struct {
-	runner ExpiryRunner
+	runner   ExpiryRunner
 	interval time.Duration
 	log      zerolog.Logger
 	stopCh   chan struct{}
 }
+
+// DefaultExpiryInterval is the interval at which the bonus expiry background
+// process runs. Per spec (Domain 1: "Expiry Background Process (SHALL):
+// Goroutine runs every 60s"), this is 60 seconds.
+const DefaultExpiryInterval = 60 * time.Second
 
 // NewBonusExpiryScheduler creates a scheduler that expires stale bonuses
 // at the given interval. Call Start() to begin the background loop.

@@ -337,9 +337,9 @@ func (m *mockWalletRepo) CreateTransaction(_ context.Context, _ *domain.Transact
 
 // newTestWithdrawalServiceWithBonus wires a WithdrawalService whose
 // RequestWithdrawal forfeits the user's active bonus grants through the given
-// spies. The bonus service shares the same txFunc as the withdrawal, mirroring
-// the production transaction boundary, so the forfeit runs inside the
-// withdrawal's transaction rather than a fresh one.
+// spies. The bonus service uses the txFunc provided here (the test's
+// recordingTx) so the forfeit runs in its own transaction before the
+// withdrawal's real-money debit, matching production behavior.
 func newTestWithdrawalServiceWithBonus(
 	balance, bonusBalance int64,
 	grantRepo *fakeGrantRepo,
@@ -395,7 +395,7 @@ func TestRequestWithdrawalForfeitsActiveBonus(t *testing.T) {
 		t.Errorf("balance = %d, want 0 (withdrew the full real balance)", wallet.Balance)
 	}
 
-	// Bonus pool zeroed inside the withdrawal transaction.
+	// The forfeit transaction zeroed the bonus pool before the real-money debit.
 	foundZero := false
 	for _, e := range tx.execs {
 		if strings.Contains(e.sql, "bonus_balance = 0") {
