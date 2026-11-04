@@ -11,7 +11,7 @@ Casino Online es una plataforma de juego completa que combina una experiencia pr
 | Capa | Tecnologia | Version |
 |------|-----------|---------|
 | Frontend Movil | Kotlin + Jetpack Compose + Material Design 3 | SDK 35 |
-| Backend API | Go + chi (router) + pgx (driver PostgreSQL) | Go 1.22+ |
+| Backend API | Go + chi (router) + pgx (driver PostgreSQL) | Go 1.25+ |
 | Base de Datos | PostgreSQL | 16 |
 | Tiempo Real | PubNub | -- |
 | Crypto Pagos | Solana | -- |
@@ -58,7 +58,7 @@ Ver [backend/docs/architecture.md](backend/docs/architecture.md) para detalles d
 
 ## Prerequisitos
 
-- **Go** 1.22 o superior
+- **Go** 1.25 o superior (`backend/go.mod` fija `go 1.25.0`)
 - **Java JDK** 17
 - **Android Studio** (con SDK 35, build-tools 35)
 - **Docker** y **docker-compose**
@@ -68,8 +68,8 @@ Ver [backend/docs/architecture.md](backend/docs/architecture.md) para detalles d
 
 ### 1. Clonar el repositorio
 ```bash
-git clone <url-del-repositorio>
-cd PROYECTO CASINO
+git clone https://github.com/to0ym4k3r/proyecto-casino.git
+cd proyecto-casino
 ```
 
 ### 2. Configurar variables de entorno
@@ -105,7 +105,7 @@ make run
 ## Estructura del Proyecto
 
 ```
-PROYECTO CASINO/
+proyecto-casino/
 +-- DESIGN.md                    <- Design system (tokens, colores, tipografia)
 +-- README.md                    <- Este archivo
 +-- SECURITY.md                  <- Politica de seguridad y gambling responsable

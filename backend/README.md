@@ -4,7 +4,7 @@ Backend Go para la plataforma Casino Online. API REST con arquitectura hexagonal
 
 ## Stack
 
-- **Go** 1.22+ con **chi** (router) y **pgx** (PostgreSQL driver)
+- **Go** 1.25+ con **chi** (router) y **pgx** (PostgreSQL driver)
 - **PostgreSQL** 16 con pool de conexiones pgxpool
 - **Docker** + docker-compose para desarrollo local
 - **JWT** para autenticacion (Access 15min + Refresh 7d)
@@ -13,7 +13,7 @@ Backend Go para la plataforma Casino Online. API REST con arquitectura hexagonal
 ## Setup Local
 
 ### Prerequisitos
-- Go 1.22+
+- Go 1.25+ (fijado en `go.mod`)
 - Docker y docker-compose
 - Make (opcional, para comandos abreviados)
 
